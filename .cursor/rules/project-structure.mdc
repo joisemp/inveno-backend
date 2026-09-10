@@ -1,0 +1,73 @@
+---
+description: File layout, code organisation, testing, documentation, and workflow conventions for this Django project
+alwaysApply: true
+---
+
+# Project Conventions
+
+## File and Directory Layout
+
+```
+apps/
+  common/          # Abstract mixins and utils only — no concrete domain models
+  users/           # User, UserProfile, auth API, signals, tokens, emails
+  organizations/   # Organization model, admin, service
+  <new_app>/       # Future domain apps
+templates/emails/  # HTML + plain-text email templates
+tests/
+  conftest.py
+  test_auth.py
+  users/           # Profile and auth tests
+  organizations/   # Org service and admin tests
+.cursor/rules/     # Always-on agent conventions (this file)
+```
+
+## App Structure Rules
+
+- Domain apps live under `apps/` and are registered in `LOCAL_APPS` in `config/settings/base.py`
+- `apps/common` holds abstract models and utilities only — never concrete domain models
+- One module per role: `models.py`, `views.py`, `admin.py`, `serializers.py`, `services.py`
+- Split a module into a package (`models/__init__.py`, `models/foo.py`) only when the file exceeds ~250 lines or contains clearly unrelated classes
+
+## Business Logic
+
+- Complex create/update/email workflows belong in `services.py` — not in `ModelAdmin.save_model()` or API views
+- Email send helpers belong in `emails.py`
+- Admin and views call service functions — they do not contain the logic themselves
+- Signals live in `signals.py` and are registered in `AppConfig.ready()`
+
+## Imports
+
+Always use absolute imports:
+```python
+from apps.users.models import User
+from apps.organizations.services import create_org_with_central_admin
+```
+
+Never use relative imports across apps.
+
+## Tests
+
+- Tests live in the repo-root `tests/` directory, grouped by app name (`tests/users/`, `tests/organizations/`)
+- Do NOT put tests inside `apps/`
+- Ship pytest tests in the **same change** as the code — never leave tests for later
+- Cover the happy path + the important failure cases for every new function/view/service
+- Use `pytest.mark.django_db` and DRF's `APIClient` / fixtures from `tests/conftest.py`
+
+## Documentation
+
+- Every new module, public function, and class gets a short docstring (what it does and why)
+- New or changed API endpoints are documented in `FRONTEND_API.md`
+- Admin-only flows get a docstring on the service function
+- Skip comments that only restate the code
+
+## Git Workflow
+
+- Commit after every meaningful unit of work with a short descriptive message
+  Examples: `feat: add Organization model`, `feat: org admin add form`, `test: org service tests`
+- Use conventional commit prefixes: `feat:`, `fix:`, `test:`, `docs:`, `refactor:`
+
+## Terminal Commands (PowerShell)
+
+- Use `;` to chain commands — NOT `&&` (PowerShell does not support `&&`)
+- If a terminal command is rejected or a script fails to run, **stop immediately** and ask the user how to proceed — do not retry silently or work around it

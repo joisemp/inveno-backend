@@ -1,0 +1,47 @@
+---
+description: UUID primary keys and auto-slug convention for all Django models in this project
+alwaysApply: true
+---
+
+# Model UUID and Slug Convention
+
+## UUID Primary Key
+
+Every Django model in this project uses a UUID primary key via `UUIDModel`:
+
+```python
+from apps.common.models import UUIDModel, SlugMixin
+
+class MyModel(UUIDModel, SlugMixin):
+    ...
+```
+
+`UUIDModel` provides: `id = UUIDField(primary_key=True, default=uuid.uuid4, editable=False)`
+
+**The only exception is `users.User`** which already has a UUID PK baked into `AbstractBaseUser`.
+
+## Auto-generated Slug
+
+Every new Django model also inherits `SlugMixin` which adds:
+- `slug = SlugField(max_length=255, unique=True, db_index=True, blank=True)`
+- Auto-filled on first save from `get_slug_source()` via `assign_unique_slug()`
+- Stable once set — never rewritten when the source field changes
+- Readonly in all admin forms
+
+Override `get_slug_source()` to control which field the slug derives from:
+
+```python
+def get_slug_source(self) -> str:
+    return self.name  # or self.title, self.full_name, etc.
+```
+
+**Exceptions (slug only):**
+- `users.User` — login model, excluded by design
+- Any other model only if explicitly stated in the task
+
+## Rules for AI
+
+- Do NOT ask for slug values in admin forms or API create payloads — generate them
+- Do NOT make slug fields editable in API serializers
+- Make slug readonly in Django Admin (`readonly_fields`)
+- Use `apps.common.slugs.assign_unique_slug()` — do not write custom slug logic inline

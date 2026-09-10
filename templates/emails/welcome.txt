@@ -1,0 +1,13 @@
+Hi {{ full_name }},
+
+Welcome to {{ org_name }} on Inveno!
+
+Your account has been created. Click the link below to set your password
+and get started:
+
+{{ get_started_url }}
+
+This link expires in 7 days. If you did not expect this email, please
+ignore it — no account will be activated without setting a password.
+
+— The Inveno Team

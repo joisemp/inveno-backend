@@ -72,43 +72,83 @@ Authorization: Bearer <access_token>
 
 ### Overview
 
-```
-Register / Login → receive { access, refresh }
-Use `access` token for API calls (expires in 15 min)
-Use `refresh` token to get a new `access` token (expires in 7 days)
-On logout → blacklist the refresh token
-```
-
-### 1. Register
+> **Account creation is admin-only.**  
+> A super admin registers organisations (and their first central admin) through
+> the Django Admin at `/admin/`.  The central admin receives a welcome email
+> with a *Get Started* link.  They click the link, set their password at
+> `POST /api/auth/password/set/`, then log in normally.
 
 ```
-POST /api/auth/register/
+[Super admin] creates org + central admin in /admin/
+  → Welcome email sent to central admin
+  → Central admin clicks "Get Started" link
+  → POST /api/auth/password/set/  (uid + token from URL + new_password)
+  → POST /api/auth/login/         (email + password)
+  → receive { access, refresh }
+Use access token for API calls (expires in 15 min)
+Use refresh token to get a new access token (expires in 7 days)
+On logout → POST /api/auth/logout/ with the refresh token
+```
+
+### JWT Token Claims
+
+The access token payload includes:
+
+```json
+{
+  "user_id": "uuid",
+  "user_type": "central_admin",
+  "org_id": "uuid-of-org",
+  "org_suffix": "acme_west",
+  ...
+}
+```
+
+For super admins: `org_id` and `org_suffix` are `null`.
+
+---
+
+### ~~Register (disabled)~~
+
+`POST /api/auth/register/` is **not available**.  Accounts are created by super
+admins through Django Admin.
+
+---
+
+### 1. Set Password — Get-Started Link
+
+Used when a central admin clicks the *Get Started* link in their welcome email.
+The link contains `uid` and `token` query parameters.
+
+```
+POST /api/auth/password/set/
 ```
 
 **Request body:**
 ```json
 {
-  "email": "user@example.com",
-  "first_name": "Jane",
-  "last_name": "Doe",
-  "password": "StrongPass123!",
-  "password2": "StrongPass123!"
+  "uid": "<uid from URL>",
+  "token": "<token from URL>",
+  "new_password": "StrongPass123!",
+  "new_password2": "StrongPass123!"
 }
 ```
 
-**Success `201`:**
+**Success `200`:**
 ```json
-{ "detail": "Account created successfully." }
+{ "detail": "Password set successfully. You can now log in." }
 ```
 
 **Errors `400`:**
 ```json
 {
-  "email": ["user with this email already exists."],
-  "password2": ["Passwords do not match."],
-  "password": ["This password is too common."]
+  "token": ["Link is invalid or has expired. Request a new welcome email."],
+  "new_password2": ["Passwords do not match."]
 }
 ```
+
+> The link expires in **7 days** and is **one-time** — it is invalidated once
+> the password is set.
 
 ---
 
@@ -218,12 +258,27 @@ Authorization: Bearer <access_token>
 {
   "id": "550e8400-e29b-41d4-a716-446655440000",
   "email": "user@example.com",
-  "first_name": "Jane",
-  "last_name": "Doe",
-  "full_name": "Jane Doe",
-  "date_joined": "2026-09-08T12:00:00Z"
+  "date_joined": "2026-09-08T12:00:00Z",
+  "updated_at": "2026-09-08T12:00:00Z",
+  "profile": {
+    "user_type": "central_admin",
+    "first_name": "Jane",
+    "last_name": "Doe",
+    "phone": "+1234567890",
+    "full_name": "Jane Doe"
+  },
+  "org": {
+    "id": "org-uuid",
+    "name": "Acme Corp",
+    "org_suffix": "acme_west",
+    "location": "New York",
+    "is_active": true,
+    "registered_on": "2026-09-01T10:00:00Z"
+  }
 }
 ```
+
+> For super admins `org` is `null`.
 
 ---
 
@@ -234,17 +289,18 @@ PATCH /api/auth/me/
 Authorization: Bearer <access_token>
 ```
 
-**Request body (any subset):**
+**Request body (any subset of profile fields):**
 ```json
 {
   "first_name": "Jane",
-  "last_name": "Smith"
+  "last_name": "Smith",
+  "phone": "+919876543210"
 }
 ```
 
-> `email` is read-only and cannot be changed via this endpoint.
+> `email`, `org`, and `user_type` are read-only and cannot be changed via this endpoint.
 
-**Success `200`:** Returns updated profile object.
+**Success `200`:** Returns updated object with the new profile values reflected in `profile`.
 
 ---
 

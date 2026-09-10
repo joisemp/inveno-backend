@@ -22,6 +22,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     restart: unless-stopped
 
   # ── Celery Worker ──────────────────────────────────────────────────────────
@@ -85,6 +87,14 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    restart: unless-stopped
+
+  # ── Mailpit (dev email inbox) ───────────────────────────────────────────────
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "8025:8025"   # web UI  →  http://localhost:8025
+      - "1025:1025"   # SMTP    →  Django sends here
     restart: unless-stopped
 
 volumes:

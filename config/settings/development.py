@@ -9,9 +9,13 @@ from .base import *  # noqa: F401, F403
 DEBUG = True
 
 # ---------------------------------------------------------------------------
-# Email — print emails to terminal instead of sending them
+# Email — send via Mailpit (local SMTP).
+# Web inbox: http://localhost:8025
 # ---------------------------------------------------------------------------
-EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST    = "mailpit"   # Docker service name — resolves inside the compose network
+EMAIL_PORT    = 1025
+EMAIL_USE_TLS = False
 
 # ---------------------------------------------------------------------------
 # Static files — simple storage in dev (no manifest hashing needed)

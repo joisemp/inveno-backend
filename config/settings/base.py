@@ -41,7 +41,9 @@ THIRD_PARTY_APPS = [
 ]
 
 LOCAL_APPS = [
+    "apps.common",
     "apps.users",
+    "apps.organizations",
     "apps.healthcheck",
 ]
 
@@ -186,6 +188,9 @@ SIMPLE_JWT = {
     "AUTH_HEADER_TYPES": ("Bearer",),
     "USER_ID_FIELD": "id",
     "USER_ID_CLAIM": "user_id",
+    # Custom serializer adds user_type / org_id / org_suffix claims and
+    # blocks login for users whose org is inactive.
+    "TOKEN_OBTAIN_SERIALIZER": "apps.users.serializers.CustomTokenObtainPairSerializer",
 }
 
 # ---------------------------------------------------------------------------
@@ -255,4 +260,14 @@ SPECTACULAR_SETTINGS = {
 # ---------------------------------------------------------------------------
 # Password reset token timeout (seconds)
 # ---------------------------------------------------------------------------
-PASSWORD_RESET_TIMEOUT = 3600  # 1 hour
+PASSWORD_RESET_TIMEOUT = 3600  # 1 hour — used by forgot-password flow
+
+# Token lifetime for the welcome-email get-started link (7 days).
+# Separate from PASSWORD_RESET_TIMEOUT so the forgot-password flow stays short.
+PASSWORD_SETUP_TIMEOUT = 7 * 24 * 3600  # 604 800 s
+
+# ---------------------------------------------------------------------------
+# Frontend URL — used to build the get-started link in welcome emails.
+# Override in production with the actual frontend domain.
+# ---------------------------------------------------------------------------
+FRONTEND_URL = config("FRONTEND_URL", default="http://localhost:5173")

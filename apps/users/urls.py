@@ -1,5 +1,15 @@
+"""
+URL patterns for the users app.
+
+Public registration (POST /api/auth/register/) has been removed.
+Accounts are created through Django Admin via the organisation registration flow.
+"""
 from django.urls import path
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView, TokenVerifyView
+from rest_framework_simplejwt.views import (
+    TokenObtainPairView,
+    TokenRefreshView,
+    TokenVerifyView,
+)
 
 from .views import (
     ChangePasswordView,
@@ -7,15 +17,12 @@ from .views import (
     MeView,
     PasswordResetConfirmView,
     PasswordResetRequestView,
-    RegisterView,
+    PasswordSetView,
 )
 
 app_name = "users"
 
 urlpatterns = [
-    # Registration
-    path("register/", RegisterView.as_view(), name="register"),
-
     # JWT token endpoints
     path("login/", TokenObtainPairView.as_view(), name="token-obtain"),
     path("token/refresh/", TokenRefreshView.as_view(), name="token-refresh"),
@@ -28,7 +35,10 @@ urlpatterns = [
     path("logout/", LogoutView.as_view(), name="logout"),
     path("password/change/", ChangePasswordView.as_view(), name="password-change"),
 
-    # Password reset
+    # Forgot-password flow
     path("password/reset/", PasswordResetRequestView.as_view(), name="password-reset"),
     path("password/reset/confirm/", PasswordResetConfirmView.as_view(), name="password-reset-confirm"),
+
+    # Welcome-email get-started flow (set password for the first time)
+    path("password/set/", PasswordSetView.as_view(), name="password-set"),
 ]
