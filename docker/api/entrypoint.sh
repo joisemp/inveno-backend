@@ -15,8 +15,20 @@ print('Database is ready.')
   sleep 2
 done
 
+echo "==> Migration plan ($(date -u +%Y-%m-%dT%H:%M:%SZ))..."
+python manage.py showmigrations
+
 echo "==> Running migrations..."
-python manage.py migrate --noinput
+if ! python manage.py migrate --noinput; then
+  echo ""
+  echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+  echo "  MIGRATION FAILED — deployment aborted   "
+  echo "  Check the output above for details.     "
+  echo "  Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+  echo ""
+  exit 1
+fi
 
 echo "==> Collecting static files..."
 python manage.py collectstatic --noinput --clear
