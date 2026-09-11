@@ -1,0 +1,76 @@
+###############################################################################
+# CI workflow — runs on every PR targeting main and on direct pushes to main.
+# Spins up Postgres + Redis as service containers, installs the dev
+# requirements, and executes the full pytest suite.
+#
+# To enforce this as a merge gate:
+#   GitHub → Settings → Branches → Add rule for `main`
+#     ✓ Require status checks to pass before merging
+#       → select: "Run pytest"
+#     ✓ Require branches to be up to date before merging
+###############################################################################
+name: CI — Tests
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    name: Run pytest
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: inveno_test
+          POSTGRES_USER: inveno
+          POSTGRES_PASSWORD: inveno
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U inveno"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      DJANGO_SETTINGS_MODULE: config.settings.development
+      DJANGO_SECRET_KEY: ci-secret-not-for-production
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1
+      POSTGRES_DB: inveno_test
+      POSTGRES_USER: inveno
+      POSTGRES_PASSWORD: inveno
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      REDIS_URL: redis://localhost:6379/0
+      DEFAULT_FROM_EMAIL: noreply@inveno.app
+      FRONTEND_URL: http://localhost:5173
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements/development.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements/development.txt
+
+      - name: Run tests
+        run: pytest
