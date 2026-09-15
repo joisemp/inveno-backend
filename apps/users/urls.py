@@ -5,26 +5,24 @@ Public registration (POST /api/auth/register/) has been removed.
 Accounts are created through Django Admin via the organisation registration flow.
 """
 from django.urls import path
-from rest_framework_simplejwt.views import (
-    TokenObtainPairView,
-    TokenRefreshView,
-    TokenVerifyView,
-)
 
 from .views import (
     ChangePasswordView,
+    LoginView,
     LogoutView,
     MeView,
     PasswordResetConfirmView,
     PasswordResetRequestView,
     PasswordSetView,
+    TokenRefreshView,
+    TokenVerifyView,
 )
 
 app_name = "users"
 
 urlpatterns = [
     # JWT token endpoints
-    path("login/", TokenObtainPairView.as_view(), name="token-obtain"),
+    path("login/", LoginView.as_view(), name="token-obtain"),
     path("token/refresh/", TokenRefreshView.as_view(), name="token-refresh"),
     path("token/verify/", TokenVerifyView.as_view(), name="token-verify"),
 

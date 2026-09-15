@@ -1,19 +1,49 @@
 import logging
 
+from django.conf import settings
 from django.db import connection
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
 from redis import Redis
 from redis.exceptions import RedisError
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from django.conf import settings
+from apps.common.openapi import HealthSerializer
 
 logger = logging.getLogger(__name__)
 
 
-@extend_schema(tags=["System"])
+@extend_schema(
+    tags=["System"],
+    summary="Health check",
+    responses={
+        200: OpenApiResponse(
+            response=HealthSerializer,
+            description="API and dependencies are healthy.",
+            examples=[
+                OpenApiExample(
+                    "Healthy",
+                    value={"status": "ok", "db": "ok", "redis": "ok"},
+                    response_only=True,
+                    status_codes=["200"],
+                )
+            ],
+        ),
+        503: OpenApiResponse(
+            response=HealthSerializer,
+            description="One or more dependencies failed.",
+            examples=[
+                OpenApiExample(
+                    "Degraded",
+                    value={"status": "degraded", "db": "ok", "redis": "error"},
+                    response_only=True,
+                    status_codes=["503"],
+                )
+            ],
+        ),
+    },
+)
 class HealthCheckView(APIView):
     """
     GET /api/health/
