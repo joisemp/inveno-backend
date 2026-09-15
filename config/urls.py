@@ -9,6 +9,7 @@ from drf_spectacular.views import (
 from rest_framework.permissions import IsAdminUser
 
 from apps.common.openapi import error_responses
+from apps.common.views import FrontendGuideView
 
 
 class DocumentedSchemaView(SpectacularAPIView):
@@ -78,5 +79,6 @@ urlpatterns = [
     # API Documentation — superuser only (log in at /admin/ first)
     path("api/schema/", DocumentedSchemaView.as_view(), name="schema"),
     path("api/docs/", DocumentedSwaggerView.as_view(), name="swagger-ui"),
+    path("api/docs/frontend/", FrontendGuideView.as_view(), name="frontend-guide"),
     path("api/redoc/", DocumentedRedocView.as_view(), name="redoc"),
 ]

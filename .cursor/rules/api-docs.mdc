@@ -7,6 +7,8 @@ alwaysApply: true
 
 Every new or changed public API endpoint must ship with full OpenAPI (Swagger) annotations **and** a matching `FRONTEND_API.md` section. Tag-only `@extend_schema(tags=...)` is not enough.
 
+If the change affects frontend **behavior or payloads** (auth, types, client helpers, route guards, onboarding), update [`apps/common/frontend_guide.md`](apps/common/frontend_guide.md) in the **same change**. The live endpoint table on `/api/docs/frontend/` is generated from the OpenAPI schema and does not need a hand edit.
+
 ## Swagger (`drf-spectacular`)
 
 - Decorate views with `@extend_schema` or `@extend_schema_view`.
@@ -29,7 +31,12 @@ In the **same change**, document the endpoint with:
 
 Payloads must match Swagger examples.
 
+## Frontend guide (`apps/common/frontend_guide.md`)
+
+Served as the **Frontend** tab at `/api/docs/frontend/` (same Swagger chrome). Update copy-paste React/Vite/TS examples when request or response shapes change. Do not hand-maintain the endpoint index — it is built from the schema.
+
 ## Tests
 
 - Cover the happy path and important failures on the view.
 - Keep `tests/test_schema.py` passing (schema still generates; new public paths should be added to `EXPECTED_PATHS`).
+
