@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>{{ title|default:"API Docs" }} — Frontend</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  {% if favicon_href %}<link rel="icon" href="{{ favicon_href }}" />{% endif %}
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+
+  {% include "drf_spectacular/_docs_styles.html" %}
+</head>
+
+<body>
+
+  <header id="topbar">
+    {% include "drf_spectacular/_docs_topbar.html" %}
+  </header>
+
+  <div class="swagger-ui">
+    <div id="frontend-guide" class="wrapper info">
+      {{ guide_html|safe }}
+
+      <h2>Current endpoints</h2>
+      <p>
+        Generated from the live OpenAPI schema. New annotated views appear here
+        automatically. Request and error JSON for each path is in
+        <code>FRONTEND_API.md</code> and on the Swagger tab.
+      </p>
+      <table id="endpoint-index">
+        <thead>
+          <tr>
+            <th>Method</th>
+            <th>Path</th>
+            <th>Summary</th>
+          </tr>
+        </thead>
+        <tbody id="endpoint-index-body">
+          {% for op in operations %}
+          <tr>
+            <td class="method">{{ op.method }}</td>
+            <td class="path">{{ op.path }}</td>
+            <td>{{ op.summary }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    var tbody = document.getElementById("endpoint-index-body");
+    if (!tbody) return;
+    var skip = {
+      "/api/docs/": true,
+      "/api/docs/frontend/": true,
+      "/api/redoc/": true,
+      "/api/schema/": true
+    };
+    var methods = ["get", "post", "put", "patch", "delete", "head", "options"];
+
+    fetch("/api/schema/", {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" }
+    })
+      .then(function (res) {
+        if (!res.ok) throw new Error("schema " + res.status);
+        return res.json();
+      })
+      .then(function (schema) {
+        var paths = schema.paths || {};
+        var rows = [];
+        Object.keys(paths).sort().forEach(function (path) {
+          if (skip[path]) return;
+          var item = paths[path] || {};
+          methods.forEach(function (method) {
+            var op = item[method];
+            if (!op) return;
+            rows.push({
+              method: method.toUpperCase(),
+              path: path,
+              summary: op.summary || ""
+            });
+          });
+        });
+        tbody.innerHTML = rows.map(function (row) {
+          return (
+            "<tr>" +
+            '<td class="method">' + row.method + "</td>" +
+            '<td class="path">' + row.path + "</td>" +
+            "<td>" + row.summary + "</td>" +
+            "</tr>"
+          );
+        }).join("");
+      })
+      .catch(function () {
+        /* Keep the server-rendered table if the schema fetch fails. */
+      });
+  })();
+  </script>
+
+</body>
+</html>

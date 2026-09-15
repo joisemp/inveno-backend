@@ -27,6 +27,7 @@ docker compose up --build
 |---|---|
 | API | http://localhost:8000 |
 | Swagger UI | http://localhost:8000/api/docs/ |
+| Frontend guide | http://localhost:8000/api/docs/frontend/ |
 | ReDoc | http://localhost:8000/api/redoc/ |
 | Django Admin | http://localhost:8000/admin/ |
 

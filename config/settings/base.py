@@ -233,6 +233,8 @@ SPECTACULAR_SETTINGS = {
         "### Authentication\n"
         "Obtain a token pair from `POST /api/auth/login/`, then click **Authorize** and enter:\n"
         "```\nBearer <access_token>\n```\n\n"
+        "React + Vite integration (roles, JWT session, TypeScript examples) is on the "
+        "**[Frontend](/api/docs/frontend/)** tab.\n\n"
         "### Resources\n"
         "| Tag | Base path |\n"
         "|-----|-----------|\n"
@@ -240,6 +242,16 @@ SPECTACULAR_SETTINGS = {
         "| System | `/api/health/` |"
     ),
     "VERSION": "1.0.0",
+    "TAGS": [
+        {
+            "name": "Auth",
+            "description": "JWT login, session, profile, and password flows.",
+        },
+        {
+            "name": "System",
+            "description": "Health check and API documentation.",
+        },
+    ],
     "SERVE_INCLUDE_SCHEMA": True,
     "SERVE_PERMISSIONS": ["rest_framework.permissions.IsAdminUser"],
     "COMPONENT_SPLIT_REQUEST": True,

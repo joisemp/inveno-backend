@@ -60,6 +60,7 @@ Never use relative imports across apps.
 - New or changed API endpoints are documented in **both**:
   - `FRONTEND_API.md` — request, success JSON, and error JSON
   - Swagger via `@extend_schema` / `@extend_schema_view` with success **and** error examples (use `apps.common.openapi`)
+- If the change affects frontend behavior or payloads, also update `apps/common/frontend_guide.md` (React/Vite/TS examples). The live endpoint table on `/api/docs/frontend/` is generated from the schema.
 - Do **not** ship an endpoint with tag-only `@extend_schema(tags=...)`
 - Admin-only flows get a docstring on the service function
 - Skip comments that only restate the code

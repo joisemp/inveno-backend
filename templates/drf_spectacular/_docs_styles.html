@@ -1,0 +1,848 @@
+<style>
+    /* ─── TOKENS ─────────────────────────────────────────────── */
+    :root {
+      --z-950: #09090b;
+      --z-900: #18181b;
+      --z-800: #27272a;
+      --z-700: #3f3f46;
+      --z-400: #a1a1aa;
+      --z-300: #d4d4d8;
+      --z-100: #f4f4f5;
+      --z-50:  #fafafa;
+
+      --bg:       var(--z-950);
+      --surface:  var(--z-900);
+      --raised:   var(--z-800);
+      --border:   var(--z-700);
+      --text:     var(--z-50);
+      --text-2:   var(--z-400);
+      --text-3:   #52525b;
+
+      /* Accent — a warm white that reads as "active" on near-black */
+      --accent:     #e4e4e7;
+      --accent-dim: #71717a;
+
+      /* HTTP methods — desaturated, readable on dark */
+      --get:    #4ade80;  --get-bg:  rgba(74,222,128,.08);  --get-bd:  rgba(74,222,128,.20);
+      --post:   #60a5fa;  --post-bg: rgba(96,165,250,.08);  --post-bd: rgba(96,165,250,.20);
+      --put:    #fbbf24;  --put-bg:  rgba(251,191,36,.08);  --put-bd:  rgba(251,191,36,.20);
+      --patch:  #fb923c;  --patch-bg:rgba(251,146,60,.08);  --patch-bd:rgba(251,146,60,.20);
+      --delete: #f87171;  --del-bg:  rgba(248,113,113,.08); --del-bd:  rgba(248,113,113,.20);
+      --head:   #c084fc;  --head-bg: rgba(192,132,252,.08); --head-bd: rgba(192,132,252,.20);
+    }
+
+    /* ─── RESET ───────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; }
+    html { overflow-y: scroll; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ─── TOP BAR ─────────────────────────────────────────────── */
+    #topbar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      padding: 0 28px;
+      background: rgba(9,9,11,0.85);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    #topbar .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+    }
+
+    #topbar .brand-mark {
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      background: var(--z-800);
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #topbar .brand-mark svg {
+      width: 12px;
+      height: 12px;
+      fill: var(--text-2);
+    }
+
+    #topbar .brand-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      letter-spacing: -0.1px;
+    }
+
+    #topbar .sep {
+      width: 1px;
+      height: 14px;
+      background: var(--border);
+      margin: 0 14px;
+    }
+
+    #topbar .version {
+      font-size: 11.5px;
+      font-weight: 500;
+      color: var(--text-3);
+      font-variant-numeric: tabular-nums;
+    }
+
+    #topbar .spacer { flex: 1; }
+
+    #topbar .nav {
+      display: flex;
+      align-items: center;
+      gap: 1px;
+    }
+
+    #topbar .nav a {
+      padding: 4px 10px;
+      border-radius: 5px;
+      font-size: 12.5px;
+      font-weight: 500;
+      color: var(--text-2);
+      text-decoration: none;
+    }
+
+    #topbar .nav a:hover {
+      background: var(--raised);
+      color: var(--text);
+    }
+
+    #topbar .nav a.active {
+      background: var(--raised);
+      color: var(--text);
+    }
+
+    /* ─── SWAGGER TOPBAR: HIDE ────────────────────────────────── */
+    .swagger-ui .topbar { display: none !important; }
+
+    /* ─── GLOBAL ──────────────────────────────────────────────── */
+    .swagger-ui {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+      background: var(--bg) !important;
+      color: var(--text) !important;
+    }
+
+    .swagger-ui .wrapper {
+      max-width: 900px;
+      padding: 0 28px 64px;
+    }
+
+    /* ─── INFO ────────────────────────────────────────────────── */
+    .swagger-ui .info {
+      margin: 36px 0 28px;
+      padding: 0;
+      background: none;
+    }
+
+    .swagger-ui .info .title {
+      font-family: 'Inter', sans-serif !important;
+      font-size: 20px !important;
+      font-weight: 600 !important;
+      color: var(--text) !important;
+      letter-spacing: -0.3px;
+    }
+
+    .swagger-ui .info .title small {
+      font-size: 11px !important;
+      font-weight: 500 !important;
+      color: var(--text-3) !important;
+      background: var(--raised) !important;
+      border: 1px solid var(--border) !important;
+      border-radius: 4px !important;
+      padding: 2px 7px !important;
+      vertical-align: middle;
+      margin-left: 8px;
+    }
+
+    .swagger-ui .info p,
+    .swagger-ui .info li {
+      color: var(--text-2) !important;
+      font-size: 13.5px !important;
+      line-height: 1.65 !important;
+    }
+
+    .swagger-ui .info a {
+      color: var(--z-300) !important;
+      text-decoration: none;
+    }
+
+    .swagger-ui .info a:hover { text-decoration: underline; }
+
+    .swagger-ui .info code {
+      font-family: ui-monospace, 'SF Mono', Menlo, monospace !important;
+      font-size: 12px !important;
+      background: var(--raised) !important;
+      border: 1px solid var(--border) !important;
+      border-radius: 4px;
+      padding: 1px 5px;
+      color: var(--z-300) !important;
+    }
+
+    .swagger-ui .info table { border-collapse: collapse; font-size: 13px; }
+
+    .swagger-ui .info th {
+      background: var(--raised) !important;
+      color: var(--text-2) !important;
+      font-weight: 600 !important;
+      font-size: 10.5px !important;
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      padding: 7px 12px !important;
+      border: 1px solid var(--border) !important;
+    }
+
+    .swagger-ui .info td {
+      color: var(--text) !important;
+      padding: 7px 12px !important;
+      border: 1px solid var(--border) !important;
+    }
+
+    /* ─── SCHEME CONTAINER ────────────────────────────────────── */
+    .swagger-ui .scheme-container {
+      background: var(--bg) !important;
+      border-top: 1px solid var(--border) !important;
+      border-bottom: 1px solid var(--border) !important;
+      padding: 14px 0 !important;
+      margin-bottom: 0 !important;
+      box-shadow: none !important;
+    }
+
+    /* ─── FILTER BAR ──────────────────────────────────────────── */
+    .swagger-ui .filter-container {
+      background: var(--surface) !important;
+      border-top: none !important;
+      border-bottom: 1px solid var(--border) !important;
+      border-radius: 0 !important;
+      margin-bottom: 28px !important;
+      padding: 10px 28px !important;
+    }
+
+    .swagger-ui .filter-container .operation-filter-input {
+      background: var(--raised) !important;
+      border: 1px solid var(--border) !important;
+      border-radius: 6px !important;
+      color: var(--text) !important;
+      font-family: inherit !important;
+      font-size: 13px !important;
+      padding: 7px 12px !important;
+      width: 100% !important;
+      outline: none !important;
+    }
+
+    .swagger-ui .filter-container .operation-filter-input::placeholder {
+      color: var(--text-3) !important;
+    }
+
+    .swagger-ui .filter-container .operation-filter-input:focus {
+      border-color: var(--z-400) !important;
+    }
+
+    /* ─── TAG HEADERS ─────────────────────────────────────────── */
+    .swagger-ui .opblock-tag {
+      background: transparent !important;
+      border: none !important;
+      border-bottom: 1px solid var(--border) !important;
+      border-radius: 0 !important;
+      margin-top: 4px !important;
+      margin-bottom: 0 !important;
+      padding: 14px 0 !important;
+      color: var(--text) !important;
+      font-size: 13px !important;
+      font-weight: 600 !important;
+      letter-spacing: -0.1px;
+    }
+
+    .swagger-ui .opblock-tag small {
+      color: var(--text-3) !important;
+      font-size: 11.5px !important;
+      font-weight: 400 !important;
+      margin-left: 8px;
+    }
+
+    /* ─── OPERATION BLOCKS ────────────────────────────────────── */
+    .swagger-ui .opblock {
+      background: var(--surface) !important;
+      border: 1px solid var(--border) !important;
+      border-radius: 7px !important;
+      margin: 5px 0 !important;
+      box-shadow: none !important;
+    }
+
+    .swagger-ui .opblock.is-open {
+      border-color: var(--z-700) !important;
+      box-shadow: 0 1px 6px rgba(0,0,0,.4) !important;
+    }
+
+    .swagger-ui .opblock .opblock-summary {
+      padding: 10px 14px !important;
+      align-items: center !important;
+    }
+
+    .swagger-ui .opblock .opblock-summary-description {
+      font-family: inherit !important;
+      color: var(--text-2) !important;
+      font-size: 13px !important;
+    }
+
+    .swagger-ui .opblock .opblock-summary-path {
+      font-family: ui-monospace, 'SF Mono', Menlo, monospace !important;
+      font-size: 13px !important;
+      font-weight: 500 !important;
+      color: var(--text) !important;
+    }
+
+    .swagger-ui .opblock .opblock-summary-path__deprecated {
+      text-decoration: line-through;
+      color: var(--text-3) !important;
+    }
+
+    /* Method pills */
+    .swagger-ui .opblock-summary-method {
+      border-radius: 4px !important;
+      font-family: inherit !important;
+      font-size: 10.5px !important;
+      font-weight: 600 !important;
+      min-width: 56px !important;
+      padding: 3px 6px !important;
+      text-align: center !important;
+      letter-spacing: .4px !important;
+      text-transform: uppercase !important;
+    }
+
+    .swagger-ui .opblock-get    { border-left: 2px solid var(--get) !important; }
+    .swagger-ui .opblock-post   { border-left: 2px solid var(--post) !important; }
+    .swagger-ui .opblock-put    { border-left: 2px solid var(--put) !important; }
+    .swagger-ui .opblock-patch  { border-left: 2px solid var(--patch) !important; }
+    .swagger-ui .opblock-delete { border-left: 2px solid var(--delete) !important; }
+    .swagger-ui .opblock-head   { border-left: 2px solid var(--head) !important; }
+
+    .swagger-ui .opblock-get    .opblock-summary-method { background: var(--get-bg) !important;   color: var(--get) !important;    border: 1px solid var(--get-bd) !important; }
+    .swagger-ui .opblock-post   .opblock-summary-method { background: var(--post-bg) !important;  color: var(--post) !important;   border: 1px solid var(--post-bd) !important; }
+    .swagger-ui .opblock-put    .opblock-summary-method { background: var(--put-bg) !important;   color: var(--put) !important;    border: 1px solid var(--put-bd) !important; }
+    .swagger-ui .opblock-patch  .opblock-summary-method { background: var(--patch-bg) !important; color: var(--patch) !important;  border: 1px solid var(--patch-bd) !important; }
+    .swagger-ui .opblock-delete .opblock-summary-method { background: var(--del-bg) !important;   color: var(--delete) !important; border: 1px solid var(--del-bd) !important; }
+    .swagger-ui .opblock-head   .opblock-summary-method { background: var(--head-bg) !important;  color: var(--head) !important;   border: 1px solid var(--head-bd) !important; }
+
+    /* ─── EXPANDED BODY ───────────────────────────────────────── */
+    .swagger-ui .opblock-body {
+      background: var(--bg) !important;
+      border-top: 1px solid var(--border) !important;
+    }
+
+    .swagger-ui .opblock-section-header {
+      background: var(--surface) !important;
+      border-bottom: 1px solid var(--border) !important;
+      padding: 8px 14px !important;
+    }
+
+    .swagger-ui .opblock-section-header h4,
+    .swagger-ui .opblock-section-header label {
+      color: var(--text-2) !important;
+      font-family: inherit !important;
+      font-size: 11px !important;
+      font-weight: 600 !important;
+      text-transform: uppercase;
+      letter-spacing: .5px;
+    }
+
+    .swagger-ui .opblock-description-wrapper p {
+      color: var(--text-2) !important;
+      font-size: 13px !important;
+    }
+
+    /* Parameters */
+    .swagger-ui table thead tr th,
+    .swagger-ui table thead tr td {
+      background: var(--raised) !important;
+      color: var(--text-3) !important;
+      font-family: inherit !important;
+      font-size: 10.5px !important;
+      font-weight: 600 !important;
+      border-bottom: 1px solid var(--border) !important;
+      padding: 7px 12px !important;
+      text-transform: uppercase;
+      letter-spacing: .4px;
+    }
+
+    .swagger-ui table tbody tr td {
+      background: transparent !important;
+      color: var(--text) !important;
+      border-bottom: 1px solid var(--border) !important;
+      padding: 10px 12px !important;
+      font-size: 13px !important;
+    }
+
+    .swagger-ui .parameter__name {
+      font-family: ui-monospace, 'SF Mono', Menlo, monospace !important;
+      font-size: 12.5px !important;
+      color: var(--z-300) !important;
+    }
+
+    .swagger-ui .parameter__type {
+      color: var(--text-3) !important;
+      font-size: 11.5px !important;
+    }
+
+    .swagger-ui textarea {
+      background: var(--raised) !important;
+      border: 1px solid var(--border) !important;
+      border-radius: 6px !important;
+      color: var(--text) !important;
+      font-family: ui-monospace, 'SF Mono', Menlo, monospace !important;
+      font-size: 12.5px !important;
+      line-height: 1.6 !important;
+      padding: 10px 12px !important;
+      outline: none !important;
+    }
+
+    .swagger-ui textarea:focus {
+      border-color: var(--z-400) !important;
+    }
+
+    /* ─── EXECUTE ─────────────────────────────────────────────── */
+    .swagger-ui .btn.execute {
+      background: var(--z-100) !important;
+      border: none !important;
+      border-radius: 6px !important;
+      color: var(--z-950) !important;
+      font-family: inherit !important;
+      font-size: 12.5px !important;
+      font-weight: 600 !important;
+      padding: 7px 16px !important;
+      cursor: pointer;
+    }
+
+    .swagger-ui .btn.execute:hover {
+      background: var(--z-50) !important;
+    }
+
+    .swagger-ui .btn.btn-clear {
+      background: transparent !important;
+      border: 1px solid var(--border) !important;
+      border-radius: 6px !important;
+      color: var(--text-2) !important;
+      font-family: inherit !important;
+      font-size: 12.5px !important;
+      font-weight: 500 !important;
+      padding: 6px 14px !important;
+    }
+
+    .swagger-ui .btn.btn-clear:hover {
+      border-color: var(--z-400) !important;
+      color: var(--text) !important;
+    }
+
+    /* ─── RESPONSES ───────────────────────────────────────────── */
+    .swagger-ui .responses-wrapper { background: var(--bg) !important; }
+
+    .swagger-ui .highlight-code pre,
+    .swagger-ui .microlight {
+      background: var(--surface) !important;
+      border: 1px solid var(--border) !important;
+      border-radius: 6px !important;
+      font-family: ui-monospace, 'SF Mono', Menlo, monospace !important;
+      font-size: 12px !important;
+      line-height: 1.65 !important;
+      color: var(--text) !important;
+      padding: 12px 14px !important;
+    }
+
+    .swagger-ui .response-col_status {
+      font-family: ui-monospace, 'SF Mono', Menlo, monospace !important;
+      font-size: 12.5px !important;
+      font-weight: 600 !important;
+    }
+
+    .swagger-ui .response-col_description__inner p {
+      color: var(--text-2) !important;
+      font-size: 13px !important;
+    }
+
+    /* ─── AUTHORIZE ───────────────────────────────────────────── */
+    .swagger-ui .auth-wrapper .authorize {
+      background: transparent !important;
+      border: 1px solid var(--border) !important;
+      border-radius: 6px !important;
+      color: var(--text-2) !important;
+      font-family: inherit !important;
+      font-size: 13px !important;
+      font-weight: 500 !important;
+      padding: 6px 14px !important;
+    }
+
+    .swagger-ui .auth-wrapper .authorize:hover {
+      border-color: var(--z-400) !important;
+      color: var(--text) !important;
+    }
+
+    .swagger-ui .auth-wrapper .authorize svg { fill: var(--text-3) !important; }
+
+    /* Auth modal */
+    .swagger-ui .dialog-ux .modal-ux {
+      background: var(--surface) !important;
+      border: 1px solid var(--border) !important;
+      border-radius: 10px !important;
+      box-shadow: 0 16px 48px rgba(0,0,0,.6) !important;
+      color: var(--text) !important;
+    }
+
+    .swagger-ui .dialog-ux .modal-ux-header {
+      background: var(--raised) !important;
+      border-bottom: 1px solid var(--border) !important;
+      border-radius: 10px 10px 0 0 !important;
+      padding: 14px 20px !important;
+    }
+
+    .swagger-ui .dialog-ux .modal-ux-header h3 {
+      color: var(--text) !important;
+      font-family: inherit !important;
+      font-size: 14px !important;
+      font-weight: 600 !important;
+    }
+
+    .swagger-ui .dialog-ux .modal-ux-content { padding: 20px !important; }
+
+    .swagger-ui .dialog-ux .modal-ux-content label {
+      color: var(--text-2) !important;
+      font-size: 12px !important;
+      font-weight: 500 !important;
+    }
+
+    .swagger-ui .dialog-ux .modal-ux-content input {
+      background: var(--raised) !important;
+      border: 1px solid var(--border) !important;
+      border-radius: 6px !important;
+      color: var(--text) !important;
+      font-family: ui-monospace, 'SF Mono', Menlo, monospace !important;
+      font-size: 12.5px !important;
+      padding: 8px 10px !important;
+      width: 100% !important;
+      outline: none !important;
+    }
+
+    .swagger-ui .dialog-ux .modal-ux-content input:focus {
+      border-color: var(--z-400) !important;
+    }
+
+    .swagger-ui .dialog-ux .modal-ux-header .close-modal {
+      background: transparent !important;
+      border: none !important;
+      color: var(--text-2) !important;
+      cursor: pointer;
+    }
+
+    /* Auth modal buttons */
+    .swagger-ui .auth-btn-wrapper .btn,
+    .swagger-ui .dialog-ux .modal-ux-content .btn {
+      font-family: inherit !important;
+      font-size: 12.5px !important;
+      font-weight: 500 !important;
+      border-radius: 6px !important;
+      padding: 7px 14px !important;
+    }
+
+    .swagger-ui .auth-btn-wrapper .btn-done {
+      background: var(--z-100) !important;
+      border: none !important;
+      color: var(--z-950) !important;
+      font-weight: 600 !important;
+    }
+
+    /* ─── MODELS ──────────────────────────────────────────────── */
+    .swagger-ui section.models {
+      background: var(--surface) !important;
+      border: 1px solid var(--border) !important;
+      border-radius: 8px !important;
+      margin-top: 36px !important;
+      box-shadow: none !important;
+    }
+
+    .swagger-ui section.models h4 {
+      color: var(--text) !important;
+      font-family: inherit !important;
+      font-size: 13px !important;
+      font-weight: 600 !important;
+      padding: 12px 16px !important;
+      border-bottom: 1px solid var(--border) !important;
+      margin: 0 !important;
+    }
+
+    .swagger-ui section.models .model-container {
+      background: var(--bg) !important;
+      border: 1px solid var(--border) !important;
+      border-radius: 6px !important;
+      margin: 8px 12px 12px !important;
+    }
+
+    .swagger-ui .model { color: var(--text) !important; font-family: ui-monospace, 'SF Mono', Menlo, monospace !important; font-size: 12.5px !important; }
+    .swagger-ui .model-title { color: var(--text) !important; font-family: inherit !important; font-size: 13px !important; font-weight: 600 !important; }
+    .swagger-ui .model .property { color: var(--z-300) !important; }
+    .swagger-ui .model .prop-type { color: var(--post) !important; }
+
+    /* ─── INPUTS / SELECTS ────────────────────────────────────── */
+    .swagger-ui select {
+      background: var(--raised) !important;
+      border: 1px solid var(--border) !important;
+      border-radius: 6px !important;
+      color: var(--text) !important;
+      font-family: inherit !important;
+      font-size: 13px !important;
+    }
+
+    .swagger-ui input[type=text],
+    .swagger-ui input[type=password],
+    .swagger-ui input[type=search] {
+      background: var(--raised) !important;
+      border: 1px solid var(--border) !important;
+      border-radius: 6px !important;
+      color: var(--text) !important;
+      font-family: inherit !important;
+      padding: 6px 10px !important;
+    }
+
+    /* ─── MISC ────────────────────────────────────────────────── */
+    .swagger-ui .arrow { fill: var(--z-400) !important; }
+    .swagger-ui .opblock.opblock-deprecated { opacity: .45; }
+    .swagger-ui .parameter__name.required span { color: var(--delete) !important; }
+
+    .swagger-ui .tab li {
+      color: var(--text-2) !important;
+      font-family: inherit !important;
+      font-size: 13px !important;
+    }
+
+    .swagger-ui .tab li.active,
+    .swagger-ui .tab li:hover { color: var(--text) !important; }
+
+    .swagger-ui .opblock-tag-section { margin-bottom: 8px; }
+
+    /* Loading */
+    .swagger-ui .loading-container .loading::after {
+      border-top-color: var(--text-2) !important;
+    }
+
+    /* Curl block copy button */
+    .swagger-ui .curl-command .copy-to-clipboard {
+      background: var(--raised) !important;
+      border: 1px solid var(--border) !important;
+      border-radius: 5px !important;
+      color: var(--text-2) !important;
+    }
+
+    /* ─── HIDE BUILT-IN SUMMARY COPY BUTTON ──────────────────── */
+    .swagger-ui .opblock .opblock-summary .view-line-link {
+      display: none !important;
+    }
+
+    /* ─── CUSTOM COPY BUTTON ──────────────────────────────────── */
+    .inv-copy-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: transparent;
+      border: none;
+      padding: 0;
+      margin: 0;
+      cursor: pointer;
+      color: var(--z-400);
+      line-height: 0;
+      flex-shrink: 0;
+    }
+
+    .inv-copy-btn:hover  { color: var(--z-300); }
+    .inv-copy-btn.copied { color: var(--get); }
+
+    /* ─── ICON ROW — alignment + spacing ─────────────────────── */
+    .swagger-ui .opblock .opblock-summary {
+      gap: 4px !important;
+      align-items: center !important;
+    }
+
+    /* Lock button: clear inherited padding, align icon */
+    .swagger-ui .opblock .opblock-summary .authorization__btn {
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      padding: 0 !important;
+      margin: 0 !important;
+      color: var(--z-400) !important;
+    }
+
+    .swagger-ui .opblock .opblock-summary .authorization__btn svg {
+      fill: var(--z-400) !important;
+    }
+
+    /* Chevron / collapse arrow */
+    .swagger-ui .opblock .opblock-summary .opblock-control-arrow {
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      padding: 0 !important;
+      color: var(--z-400) !important;
+    }
+
+    /* Force chevron SVG and all paths inside it to the right colour */
+    .swagger-ui .opblock .opblock-summary .opblock-control-arrow svg,
+    .swagger-ui .opblock .opblock-summary .opblock-control-arrow svg path,
+    .swagger-ui .opblock .opblock-summary .arrow,
+    .swagger-ui .opblock .opblock-summary .arrow path {
+      fill: var(--z-400) !important;
+    }
+
+    /* Uniform icon size: lock, chevron, and custom copy all 20×20 */
+    .swagger-ui .opblock .opblock-summary .authorization__btn svg,
+    .swagger-ui .opblock .opblock-summary .opblock-control-arrow svg,
+    .inv-copy-btn svg {
+      width: 16px !important;
+      height: 16px !important;
+      display: block;
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--z-700); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--accent-dim); }
+
+    /* Zero animations */
+    .swagger-ui * { transition: none !important; animation: none !important; }
+  
+
+    /* ─── FRONTEND GUIDE TAB ─────────────────────────────────── */
+    #frontend-guide.wrapper {
+      max-width: 900px;
+      padding: 36px 28px 64px;
+    }
+
+    #frontend-guide h1 {
+      font-size: 20px;
+      font-weight: 600;
+      letter-spacing: -0.3px;
+      color: var(--text);
+      margin: 0 0 16px;
+    }
+
+    #frontend-guide h2 {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+      margin: 32px 0 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    #frontend-guide h3 {
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--text);
+      margin: 24px 0 10px;
+    }
+
+    #frontend-guide p,
+    #frontend-guide li {
+      color: var(--text-2);
+      font-size: 13.5px;
+      line-height: 1.65;
+    }
+
+    #frontend-guide a {
+      color: var(--z-300);
+      text-decoration: none;
+    }
+
+    #frontend-guide a:hover { text-decoration: underline; }
+
+    #frontend-guide code {
+      font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+      font-size: 12px;
+      background: var(--raised);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 5px;
+      color: var(--z-300);
+    }
+
+    #frontend-guide pre {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 12px 14px;
+      overflow-x: auto;
+    }
+
+    #frontend-guide pre code {
+      background: none;
+      border: none;
+      padding: 0;
+      font-size: 12px;
+      line-height: 1.65;
+      color: var(--text);
+    }
+
+    #frontend-guide table { border-collapse: collapse; font-size: 13px; width: 100%; margin: 12px 0 20px; }
+
+    #frontend-guide th {
+      background: var(--raised);
+      color: var(--text-2);
+      font-weight: 600;
+      font-size: 10.5px;
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      padding: 7px 12px;
+      border: 1px solid var(--border);
+      text-align: left;
+    }
+
+    #frontend-guide td {
+      color: var(--text);
+      padding: 7px 12px;
+      border: 1px solid var(--border);
+      vertical-align: top;
+    }
+
+    #frontend-guide hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 28px 0;
+    }
+
+    #frontend-guide blockquote {
+      margin: 12px 0;
+      padding: 8px 14px;
+      border-left: 2px solid var(--border);
+      color: var(--text-2);
+    }
+
+    #endpoint-index .method {
+      font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+      font-size: 10.5px;
+      font-weight: 600;
+      letter-spacing: .4px;
+    }
+
+    #endpoint-index .path {
+      font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+      font-size: 12.5px;
+    }
+
+  </style>

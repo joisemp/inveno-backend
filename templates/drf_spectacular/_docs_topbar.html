@@ -1,0 +1,20 @@
+    <a class="brand" href="/api/docs/">
+      <div class="brand-mark">
+        <svg viewBox="0 0 12 12" xmlns="http://www.w3.org/2000/svg">
+          <rect x="0" y="0" width="5" height="5" rx="1"/>
+          <rect x="7" y="0" width="5" height="5" rx="1"/>
+          <rect x="0" y="7" width="5" height="5" rx="1"/>
+          <rect x="7" y="7" width="5" height="5" rx="1"/>
+        </svg>
+      </div>
+      <span class="brand-name">{{ title|default:"API" }}</span>
+    </a>
+    <span class="sep"></span>
+    <span class="version">v1.0.0</span>
+    <span class="spacer"></span>
+    <nav class="nav">
+      <a href="/api/docs/"{% if docs_nav == "swagger" %} class="active"{% endif %}>Swagger</a>
+      <a href="/api/docs/frontend/"{% if docs_nav == "frontend" %} class="active"{% endif %}>Frontend</a>
+      <a href="/api/redoc/"{% if docs_nav == "redoc" %} class="active"{% endif %}>ReDoc</a>
+      <a href="/api/schema/"{% if docs_nav == "schema" %} class="active"{% endif %}>Schema</a>
+    </nav>

@@ -30,6 +30,7 @@ REACT_APP_API_URL=http://localhost:8000
 | Tool | URL | Access |
 |---|---|---|
 | Swagger UI | `http://localhost:8000/api/docs/` | Superuser only (log in at `/admin/` first) |
+| Frontend guide (React + Vite + TS) | `http://localhost:8000/api/docs/frontend/` | Superuser only |
 | ReDoc | `http://localhost:8000/api/redoc/` | Superuser only |
 | Raw OpenAPI schema | `http://localhost:8000/api/schema/` | Superuser only |
 
@@ -592,6 +593,7 @@ These endpoints require a Django session from an `is_staff` user (log in at `/ad
 | Method / URL | Success | Error |
 |---|---|---|
 | `GET /api/docs/` | `200` — Swagger UI HTML | `403` (below) |
+| `GET /api/docs/frontend/` | `200` — Frontend guide HTML | `403` (below) |
 | `GET /api/redoc/` | `200` — ReDoc HTML | `403` (below) |
 | `GET /api/schema/` | `200` — OpenAPI JSON/YAML | `403` (below) |
 
