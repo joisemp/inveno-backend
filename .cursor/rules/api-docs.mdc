@@ -1,0 +1,35 @@
+---
+description: Required Swagger and FRONTEND_API.md documentation for every API endpoint
+alwaysApply: true
+---
+
+# API Endpoint Documentation
+
+Every new or changed public API endpoint must ship with full OpenAPI (Swagger) annotations **and** a matching `FRONTEND_API.md` section. Tag-only `@extend_schema(tags=...)` is not enough.
+
+## Swagger (`drf-spectacular`)
+
+- Decorate views with `@extend_schema` or `@extend_schema_view`.
+- Include `tags`, request body schema, **success** status + schema + example, and **every realistic error** the view returns (400, 401, 403, 404, 429 as applicable).
+- Import shared helpers from `apps.common.openapi`:
+  - `error_responses(401, 403, 429)` for shared auth/throttle errors
+  - `DetailSerializer`, `detail_response(...)` for `{ "detail": "..." }` bodies
+- Endpoint-specific 400 examples must match **actual serializer / view messages**.
+- JWT or third-party views must be subclassed so they get the same annotations (see `LoginView` in `apps/users/views.py`).
+- Do not add a `path()` in `urls.py` without schema annotations on the view.
+
+## FRONTEND_API.md
+
+In the **same change**, document the endpoint with:
+
+- Method, URL, auth required
+- Request JSON
+- Success: HTTP status + JSON
+- Errors: HTTP status + JSON for each case
+
+Payloads must match Swagger examples.
+
+## Tests
+
+- Cover the happy path and important failures on the view.
+- Keep `tests/test_schema.py` passing (schema still generates; new public paths should be added to `EXPECTED_PATHS`).

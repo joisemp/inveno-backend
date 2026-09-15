@@ -2,6 +2,8 @@
 
 Complete API reference for integrating the Inveno backend into your React (or any frontend) application.
 
+Each endpoint documents **request**, **success** (status + JSON), and **errors** (status + JSON) as returned by the API.
+
 ---
 
 ## Base URL
@@ -25,11 +27,11 @@ REACT_APP_API_URL=http://localhost:8000
 
 ## Interactive Docs
 
-| Tool | URL |
-|---|---|
-| Swagger UI (try it in browser) | `http://localhost:8000/api/docs/` |
-| ReDoc (read-friendly) | `http://localhost:8000/api/redoc/` |
-| Raw OpenAPI schema | `http://localhost:8000/api/schema/` |
+| Tool | URL | Access |
+|---|---|---|
+| Swagger UI | `http://localhost:8000/api/docs/` | Superuser only (log in at `/admin/` first) |
+| ReDoc | `http://localhost:8000/api/redoc/` | Superuser only |
+| Raw OpenAPI schema | `http://localhost:8000/api/schema/` | Superuser only |
 
 ---
 
@@ -54,7 +56,7 @@ docker compose -f docker-compose.frontend-dev.yml up
 
 ## Request Headers
 
-All requests must include:
+All JSON requests must include:
 
 ```http
 Content-Type: application/json
@@ -65,6 +67,42 @@ Authenticated requests must also include:
 ```http
 Authorization: Bearer <access_token>
 ```
+
+---
+
+## Shared Error Responses
+
+These appear on many endpoints. Individual sections reference them by name.
+
+### `401` — Not authenticated
+
+```json
+{ "detail": "Authentication credentials were not provided." }
+```
+
+### `401` — Invalid or expired JWT
+
+```json
+{
+  "detail": "Given token not valid for any token type",
+  "code": "token_not_valid",
+  "messages": [
+    {
+      "token_class": "AccessToken",
+      "token_type": "access",
+      "message": "Token is invalid or expired"
+    }
+  ]
+}
+```
+
+### `429` — Rate limited
+
+```json
+{ "detail": "Request was throttled. Expected available in 42 seconds." }
+```
+
+Auth endpoints (login, password set/reset) are limited to **10 requests / minute**.
 
 ---
 
@@ -99,8 +137,7 @@ The access token payload includes:
   "user_id": "uuid",
   "user_type": "central_admin",
   "org_id": "uuid-of-org",
-  "org_suffix": "acme_west",
-  ...
+  "org_suffix": "acme_west"
 }
 ```
 
@@ -110,7 +147,7 @@ For super admins: `org_id` and `org_suffix` are `null`.
 
 ### ~~Register (disabled)~~
 
-`POST /api/auth/register/` is **not available**.  Accounts are created by super
+`POST /api/auth/register/` is **not available**. Accounts are created by super
 admins through Django Admin.
 
 ---
@@ -120,9 +157,10 @@ admins through Django Admin.
 Used when a central admin clicks the *Get Started* link in their welcome email.
 The link contains `uid` and `token` query parameters.
 
-```
-POST /api/auth/password/set/
-```
+| | |
+|---|---|
+| **Method / URL** | `POST /api/auth/password/set/` |
+| **Auth** | None |
 
 **Request body:**
 ```json
@@ -139,24 +177,38 @@ POST /api/auth/password/set/
 { "detail": "Password set successfully. You can now log in." }
 ```
 
-**Errors `400`:**
+**Error `400` — invalid uid:**
 ```json
-{
-  "token": ["Link is invalid or has expired. Request a new welcome email."],
-  "new_password2": ["Passwords do not match."]
-}
+{ "uid": ["Invalid link."] }
 ```
 
-> The link expires in **7 days** and is **one-time** — it is invalidated once
-> the password is set.
+**Error `400` — invalid / expired / already-used token:**
+```json
+{ "token": ["Link is invalid or has expired. Request a new welcome email."] }
+```
+
+**Error `400` — password mismatch:**
+```json
+{ "new_password2": ["Passwords do not match."] }
+```
+
+**Error `400` — weak password:**
+```json
+{ "new_password": ["This password is too common."] }
+```
+
+**Error `429`:** see [Shared Error Responses](#429--rate-limited)
+
+> The link expires in **7 days** and is **one-time** — it is invalidated once the password is set.
 
 ---
 
 ### 2. Login
 
-```
-POST /api/auth/login/
-```
+| | |
+|---|---|
+| **Method / URL** | `POST /api/auth/login/` |
+| **Auth** | None |
 
 **Request body:**
 ```json
@@ -174,10 +226,29 @@ POST /api/auth/login/
 }
 ```
 
-**Error `401`:**
+**Error `401` — wrong email or password:**
 ```json
 { "detail": "No active account found with the given credentials." }
 ```
+
+**Error `400` — organisation suspended:**
+```json
+{
+  "non_field_errors": [
+    "Your organisation has been suspended. Please contact your administrator."
+  ]
+}
+```
+
+**Error `400` — missing fields:**
+```json
+{
+  "email": ["This field is required."],
+  "password": ["This field is required."]
+}
+```
+
+**Error `429`:** see [Shared Error Responses](#429--rate-limited)
 
 ---
 
@@ -185,9 +256,10 @@ POST /api/auth/login/
 
 Access tokens expire in **15 minutes**. Use the refresh token to get a new one.
 
-```
-POST /api/auth/token/refresh/
-```
+| | |
+|---|---|
+| **Method / URL** | `POST /api/auth/token/refresh/` |
+| **Auth** | None (body carries refresh token) |
 
 **Request body:**
 ```json
@@ -196,41 +268,69 @@ POST /api/auth/token/refresh/
 
 **Success `200`:**
 ```json
-{ "access": "new_access_token...", "refresh": "new_refresh_token..." }
+{
+  "access": "new_access_token...",
+  "refresh": "new_refresh_token..."
+}
 ```
 
-> Note: `ROTATE_REFRESH_TOKENS = True` — each refresh call returns a **new refresh token**. Store the new one.
+> `ROTATE_REFRESH_TOKENS = True` — each refresh returns a **new refresh token**. Store it. The old refresh token is blacklisted.
 
-**Error `401`:**
+**Error `400` — missing refresh:**
 ```json
-{ "detail": "Token is invalid or expired.", "code": "token_not_valid" }
+{ "refresh": ["This field is required."] }
+```
+
+**Error `401` — invalid, expired, or blacklisted refresh:**
+```json
+{
+  "detail": "Token is invalid or expired",
+  "code": "token_not_valid"
+}
 ```
 
 ---
 
 ### 4. Verify Token
 
-```
-POST /api/auth/token/verify/
-```
+| | |
+|---|---|
+| **Method / URL** | `POST /api/auth/token/verify/` |
+| **Auth** | None |
 
+**Request body:**
 ```json
 { "token": "<access_token>" }
 ```
 
-**Success `200`:** `{}`  
-**Error `401`:** Token is invalid or expired.
+**Success `200`:**
+```json
+{}
+```
+
+**Error `400` — missing token:**
+```json
+{ "token": ["This field is required."] }
+```
+
+**Error `401` — invalid or expired token:**
+```json
+{
+  "detail": "Token is invalid or expired",
+  "code": "token_not_valid"
+}
+```
 
 ---
 
 ### 5. Logout
 
-Blacklists the refresh token so it can't be used again.
+Blacklists the refresh token so it cannot be used again.
 
-```
-POST /api/auth/logout/
-Authorization: Bearer <access_token>
-```
+| | |
+|---|---|
+| **Method / URL** | `POST /api/auth/logout/` |
+| **Auth** | Bearer access token required |
 
 **Request body:**
 ```json
@@ -242,16 +342,28 @@ Authorization: Bearer <access_token>
 { "detail": "Successfully logged out." }
 ```
 
+**Error `400` — missing refresh:**
+```json
+{ "detail": "Refresh token is required." }
+```
+
+**Error `400` — invalid or already blacklisted:**
+```json
+{ "detail": "Invalid or already blacklisted token." }
+```
+
+**Error `401`:** see [Shared Error Responses](#401--not-authenticated)
+
 ---
 
 ## User Profile
 
 ### Get My Profile
 
-```
-GET /api/auth/me/
-Authorization: Bearer <access_token>
-```
+| | |
+|---|---|
+| **Method / URL** | `GET /api/auth/me/` |
+| **Auth** | Bearer access token required |
 
 **Success `200`:**
 ```json
@@ -280,16 +392,18 @@ Authorization: Bearer <access_token>
 
 > For super admins `org` is `null`.
 
+**Error `401`:** see [Shared Error Responses](#401--not-authenticated)
+
 ---
 
 ### Update My Profile
 
-```
-PATCH /api/auth/me/
-Authorization: Bearer <access_token>
-```
+| | |
+|---|---|
+| **Method / URL** | `PATCH /api/auth/me/` |
+| **Auth** | Bearer access token required |
 
-**Request body (any subset of profile fields):**
+**Request body (any subset):**
 ```json
 {
   "first_name": "Jane",
@@ -298,9 +412,39 @@ Authorization: Bearer <access_token>
 }
 ```
 
-> `email`, `org`, and `user_type` are read-only and cannot be changed via this endpoint.
+> `email`, `org`, and `user_type` are read-only.
 
-**Success `200`:** Returns updated object with the new profile values reflected in `profile`.
+**Success `200`:**
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "email": "user@example.com",
+  "date_joined": "2026-09-08T12:00:00Z",
+  "updated_at": "2026-09-09T08:15:00Z",
+  "profile": {
+    "user_type": "central_admin",
+    "first_name": "Jane",
+    "last_name": "Smith",
+    "phone": "+919876543210",
+    "full_name": "Jane Smith"
+  },
+  "org": {
+    "id": "org-uuid",
+    "name": "Acme Corp",
+    "org_suffix": "acme_west",
+    "location": "New York",
+    "is_active": true,
+    "registered_on": "2026-09-01T10:00:00Z"
+  }
+}
+```
+
+**Error `400` — validation:**
+```json
+{ "phone": ["Ensure this field has no more than 30 characters."] }
+```
+
+**Error `401`:** see [Shared Error Responses](#401--not-authenticated)
 
 ---
 
@@ -308,11 +452,12 @@ Authorization: Bearer <access_token>
 
 ### Change Password (authenticated)
 
-```
-POST /api/auth/password/change/
-Authorization: Bearer <access_token>
-```
+| | |
+|---|---|
+| **Method / URL** | `POST /api/auth/password/change/` |
+| **Auth** | Bearer access token required |
 
+**Request body:**
 ```json
 {
   "old_password": "OldPass123!",
@@ -326,27 +471,48 @@ Authorization: Bearer <access_token>
 { "detail": "Password updated successfully." }
 ```
 
-**Error `400`:**
+**Error `400` — wrong old password:**
 ```json
 { "old_password": ["Old password is incorrect."] }
 ```
+
+**Error `400` — password mismatch:**
+```json
+{ "new_password2": ["Passwords do not match."] }
+```
+
+**Error `400` — weak new password:**
+```json
+{ "new_password": ["This password is too common."] }
+```
+
+**Error `401`:** see [Shared Error Responses](#401--not-authenticated)
 
 ---
 
 ### Forgot Password — Request Reset Link
 
-```
-POST /api/auth/password/reset/
-```
+| | |
+|---|---|
+| **Method / URL** | `POST /api/auth/password/reset/` |
+| **Auth** | None |
 
+**Request body:**
 ```json
 { "email": "user@example.com" }
 ```
 
-**Success `200`** (always, even if email doesn't exist — prevents enumeration):
+**Success `200`** (always, even if the email does not exist — prevents enumeration):
 ```json
 { "detail": "If an account with that email exists, a reset link has been sent." }
 ```
+
+**Error `400` — invalid email format:**
+```json
+{ "email": ["Enter a valid email address."] }
+```
+
+**Error `429`:** see [Shared Error Responses](#429--rate-limited)
 
 > In **development**, the email is printed to the Docker terminal — check `docker compose logs api`.
 
@@ -354,10 +520,12 @@ POST /api/auth/password/reset/
 
 ### Forgot Password — Confirm Reset
 
-```
-POST /api/auth/password/reset/confirm/
-```
+| | |
+|---|---|
+| **Method / URL** | `POST /api/auth/password/reset/confirm/` |
+| **Auth** | None |
 
+**Request body:**
 ```json
 {
   "uid": "<uid from email link>",
@@ -372,10 +540,27 @@ POST /api/auth/password/reset/confirm/
 { "detail": "Password has been reset successfully." }
 ```
 
-**Error `400`:**
+**Error `400` — invalid uid:**
+```json
+{ "uid": ["Invalid reset link."] }
+```
+
+**Error `400` — invalid or expired token:**
 ```json
 { "token": ["Reset link is invalid or has expired."] }
 ```
+
+**Error `400` — password mismatch:**
+```json
+{ "new_password2": ["Passwords do not match."] }
+```
+
+**Error `400` — weak password:**
+```json
+{ "new_password": ["This password is too common."] }
+```
+
+**Error `429`:** see [Shared Error Responses](#429--rate-limited)
 
 ---
 
@@ -383,11 +568,10 @@ POST /api/auth/password/reset/confirm/
 
 ### Health Check
 
-```
-GET /api/health/
-```
-
-No authentication required.
+| | |
+|---|---|
+| **Method / URL** | `GET /api/health/` |
+| **Auth** | None |
 
 **Success `200`:**
 ```json
@@ -397,6 +581,28 @@ No authentication required.
 **Degraded `503`:**
 ```json
 { "status": "degraded", "db": "ok", "redis": "error" }
+```
+
+---
+
+### API Documentation (superuser only)
+
+These endpoints require a Django session from an `is_staff` user (log in at `/admin/` first). Regular JWT users cannot access them.
+
+| Method / URL | Success | Error |
+|---|---|---|
+| `GET /api/docs/` | `200` — Swagger UI HTML | `403` (below) |
+| `GET /api/redoc/` | `200` — ReDoc HTML | `403` (below) |
+| `GET /api/schema/` | `200` — OpenAPI JSON/YAML | `403` (below) |
+
+**Error `403`:**
+```json
+{ "detail": "You do not have permission to perform this action." }
+```
+
+**Error `401`** (no session and no credentials):
+```json
+{ "detail": "Authentication credentials were not provided." }
 ```
 
 ---
@@ -434,18 +640,11 @@ No authentication required.
 
 ## Rate Limiting
 
-The API enforces rate limits. When exceeded, you receive:
-
-**`429 Too Many Requests`**
-```json
-{ "detail": "Request was throttled. Expected available in 42 seconds." }
-```
-
 | Limit | Rate |
 |---|---|
 | Unauthenticated | 100 requests / day |
 | Authenticated | 1000 requests / day |
-| Auth endpoints (login, register, reset) | 10 requests / min |
+| Auth endpoints (login, password set/reset) | 10 requests / min |
 
 **Handling 429 in your app:**
 
@@ -490,14 +689,14 @@ In production, configure `CORS_ALLOWED_ORIGINS` on the server to include your de
 
 | Method | Security | Notes |
 |---|---|---|
-| `httpOnly` cookie | ✅ Best | Safe from XSS. Requires cookie-based auth setup. |
-| In-memory (React state) | ✅ Good | Lost on refresh — pair with silent refresh strategy. |
-| `localStorage` | ⚠️ Risky | Vulnerable to XSS. Avoid for access tokens. |
+| `httpOnly` cookie | Best | Safe from XSS. Requires cookie-based auth setup. |
+| In-memory (React state) | Good | Lost on refresh — pair with silent refresh strategy. |
+| `localStorage` | Risky | Vulnerable to XSS. Avoid for access tokens. |
 
-### Recommended pattern (in-memory + refresh cookie)
+### Recommended pattern (in-memory + refresh)
 
 1. Store `access` token in memory (React context / Zustand / Redux)
-2. Store `refresh` token in an `httpOnly` cookie (set by the server or a BFF)
+2. Store `refresh` token securely (prefer httpOnly cookie via BFF, or memory)
 3. On page load, call `POST /api/auth/token/refresh/` to get a new access token silently
 
 ---
@@ -531,13 +730,16 @@ api.interceptors.response.use(
       original._retry = true;
       try {
         const refresh = getRefreshToken();
-        const { data } = await axios.post(`${import.meta.env.VITE_API_URL}/api/auth/token/refresh/`, { refresh });
-        setAccessToken(data.access);   // store new access token
-        setRefreshToken(data.refresh); // store new refresh token (rotation)
+        const { data } = await axios.post(
+          `${import.meta.env.VITE_API_URL}/api/auth/token/refresh/`,
+          { refresh }
+        );
+        setAccessToken(data.access);
+        setRefreshToken(data.refresh); // rotation — store the new refresh
         original.headers.Authorization = `Bearer ${data.access}`;
         return api(original);
       } catch {
-        clearTokens(); // logout
+        clearTokens();
         window.location.href = '/login';
       }
     }
@@ -548,18 +750,17 @@ api.interceptors.response.use(
 export default api;
 ```
 
-### Register
+### Set password (welcome email / Get Started)
 
 ```js
-const register = async (email, password, password2, firstName, lastName) => {
-  const { data } = await api.post('/api/auth/register/', {
-    email,
-    password,
-    password2,
-    first_name: firstName,
-    last_name: lastName,
+const setPassword = async (uid, token, newPassword, newPassword2) => {
+  const { data } = await api.post('/api/auth/password/set/', {
+    uid,
+    token,
+    new_password: newPassword,
+    new_password2: newPassword2,
   });
-  return data; // { detail: "Account created successfully." }
+  return data; // { detail: "Password set successfully. You can now log in." }
 };
 ```
 
@@ -579,7 +780,8 @@ const login = async (email, password) => {
 ```js
 const getProfile = async () => {
   const { data } = await api.get('/api/auth/me/');
-  return data; // { id, email, first_name, last_name, full_name, date_joined }
+  // { id, email, date_joined, updated_at, profile: {...}, org: {...} | null }
+  return data;
 };
 ```
 
@@ -597,7 +799,7 @@ const logout = async () => {
 ```js
 const forgotPassword = async (email) => {
   await api.post('/api/auth/password/reset/', { email });
-  // Always resolves — check email for the reset link
+  // Always resolves with 200 — check email for the reset link
 };
 ```
 
@@ -628,7 +830,7 @@ docker compose logs api
 docker compose logs -f api
 ```
 
-You will see the full email body including the password reset link.
+You will see the full email body including the password reset or Get Started link.
 
 ---
 
@@ -637,3 +839,4 @@ You will see the full email body including the password reset link.
 | Version | Date | Notes |
 |---|---|---|
 | 1.0.0 | 2026-09-08 | Initial release |
+| 1.1.0 | 2026-09-14 | Full success/error payloads per endpoint; register removed |
