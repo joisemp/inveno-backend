@@ -54,6 +54,7 @@ from apps.common.openapi import (
 
 from .serializers import (
     ChangePasswordSerializer,
+    CustomTokenRefreshSerializer,
     MeSerializer,
     PasswordResetConfirmSerializer,
     PasswordResetRequestSerializer,
@@ -497,6 +498,17 @@ class PasswordSetView(generics.GenericAPIView):
                     status_codes=["400"],
                 ),
                 OpenApiExample(
+                    "Account suspended",
+                    value={
+                        "non_field_errors": [
+                            "Your account has been suspended. "
+                            "Please contact your administrator."
+                        ]
+                    },
+                    response_only=True,
+                    status_codes=["400"],
+                ),
+                OpenApiExample(
                     "Missing fields",
                     value={
                         "email": ["This field is required."],
@@ -565,7 +577,9 @@ class LoginView(TokenObtainPairView):
     },
 )
 class TokenRefreshView(SimpleJWTTokenRefreshView):
-    """Rotate access (and refresh) tokens."""
+    """Rotate access (and refresh) tokens. Inactive users are rejected."""
+
+    serializer_class = CustomTokenRefreshSerializer
 
 
 @extend_schema(

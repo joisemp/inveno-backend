@@ -191,6 +191,7 @@ SIMPLE_JWT = {
     # Custom serializer adds user_type / org_id / org_suffix claims and
     # blocks login for users whose org is inactive.
     "TOKEN_OBTAIN_SERIALIZER": "apps.users.serializers.CustomTokenObtainPairSerializer",
+    "TOKEN_REFRESH_SERIALIZER": "apps.users.serializers.CustomTokenRefreshSerializer",
 }
 
 # ---------------------------------------------------------------------------
