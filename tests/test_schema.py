@@ -17,6 +17,10 @@ EXPECTED_PATHS = [
     "/api/orgs/members/{slug}/resend-welcome/",
     "/api/orgs/members/{slug}/suspend/",
     "/api/orgs/members/{slug}/unsuspend/",
+    "/api/orgs/vendors/",
+    "/api/orgs/vendors/{slug}/",
+    "/api/orgs/vendors/{slug}/suspend/",
+    "/api/orgs/vendors/{slug}/unsuspend/",
     "/api/schema/",
     "/api/docs/",
     "/api/docs/frontend/",
@@ -66,6 +70,27 @@ def test_org_members_schema_documents_success_and_errors():
     ]
     for code in ("200", "400", "401", "403", "404"):
         assert code in unsuspend, f"unsuspend missing response {code}"
+
+
+@pytest.mark.django_db
+def test_vendors_schema_documents_success_and_errors():
+    """Vendor endpoints must declare success and auth/validation errors."""
+    schema = SchemaGenerator().get_schema(request=None, public=True)
+    post = schema["paths"]["/api/orgs/vendors/"]["post"]["responses"]
+    for code in ("201", "400", "401", "403"):
+        assert code in post, f"vendors POST missing response {code}"
+    get = schema["paths"]["/api/orgs/vendors/"]["get"]["responses"]
+    for code in ("200", "400", "401", "403"):
+        assert code in get, f"vendors GET missing response {code}"
+    detail = schema["paths"]["/api/orgs/vendors/{slug}/"]["get"]["responses"]
+    for code in ("200", "401", "403", "404"):
+        assert code in detail, f"vendor GET missing response {code}"
+    patch = schema["paths"]["/api/orgs/vendors/{slug}/"]["patch"]["responses"]
+    for code in ("200", "400", "401", "403", "404"):
+        assert code in patch, f"vendor PATCH missing response {code}"
+    suspend = schema["paths"]["/api/orgs/vendors/{slug}/suspend/"]["post"]["responses"]
+    for code in ("200", "400", "401", "403", "404"):
+        assert code in suspend, f"vendor suspend missing response {code}"
 
 
 @pytest.mark.django_db

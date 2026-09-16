@@ -242,6 +242,7 @@ SPECTACULAR_SETTINGS = {
         "|-----|-----------|\n"
         "| Auth | `/api/auth/` |\n"
         "| Organisation | `/api/orgs/` |\n"
+        "| Vendors | `/api/orgs/vendors/` |\n"
         "| System | `/api/health/` |"
     ),
     "VERSION": "1.0.0",
@@ -253,6 +254,10 @@ SPECTACULAR_SETTINGS = {
         {
             "name": "Organisation",
             "description": "Organisation members — central-admin only.",
+        },
+        {
+            "name": "Vendors",
+            "description": "Org vendors — central admin or warehouse manager.",
         },
         {
             "name": "System",

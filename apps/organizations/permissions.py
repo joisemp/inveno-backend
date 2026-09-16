@@ -2,6 +2,7 @@
 DRF permission classes for organisation-scoped endpoints.
 
 IsCentralAdmin — caller must be a central admin of an active organisation.
+IsOrgUser      — central admin or warehouse manager of an active organisation.
 """
 from rest_framework.permissions import BasePermission
 
@@ -25,6 +26,27 @@ class IsCentralAdmin(BasePermission):
         except UserProfile.DoesNotExist:
             return False
         if profile.user_type != UserProfile.UserType.CENTRAL_ADMIN:
+            return False
+        org = profile.org
+        return org is not None and org.is_active
+
+
+class IsOrgUser(BasePermission):
+    """
+    Allow central admins and warehouse managers of an active organisation.
+
+    Super admins have no org and are denied (403).
+    """
+
+    def has_permission(self, request, view) -> bool:
+        user = request.user
+        if not user or not user.is_authenticated:
+            return False
+        try:
+            profile = user.profile
+        except UserProfile.DoesNotExist:
+            return False
+        if profile.user_type not in UserProfile.ORG_ASSIGNABLE_TYPES:
             return False
         org = profile.org
         return org is not None and org.is_active
