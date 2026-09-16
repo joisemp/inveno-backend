@@ -88,7 +88,7 @@ Still call `GET /api/auth/me/` after login. `/me` includes names, phone, and
 | `GET /api/health/` | Public |
 | `POST /api/auth/login/`, refresh, verify, password set/reset | Public (throttled 10/min) |
 | Most `/api/auth/*` | `IsAuthenticated` (Bearer) |
-| `GET/POST /api/orgs/members/`, resend welcome | Central admin of an active org |
+| `GET/POST /api/orgs/members/`, resend welcome, suspend, unsuspend | Central admin of an active org |
 | `/api/docs/`, `/api/docs/frontend/`, `/api/redoc/`, `/api/schema/` | Staff session or staff JWT |
 
 If the org is suspended, login returns `400`:
@@ -97,6 +97,16 @@ If the org is suspended, login returns `400`:
 {
   "non_field_errors": [
     "Your organisation has been suspended. Please contact your administrator."
+  ]
+}
+```
+
+If the **account** is suspended, login returns `400`:
+
+```json
+{
+  "non_field_errors": [
+    "Your account has been suspended. Please contact your administrator."
   ]
 }
 ```
@@ -338,8 +348,10 @@ export async function forgotPassword(email: string) {
   return data;
 }
 
-export async function listOrgMembers() {
-  const { data } = await api.get<Paginated<OrgMember>>("/api/orgs/members/");
+export async function listOrgMembers(status?: "active" | "suspended") {
+  const { data } = await api.get<Paginated<OrgMember>>("/api/orgs/members/", {
+    params: status ? { status } : undefined,
+  });
   return data;
 }
 
@@ -357,6 +369,20 @@ export async function addOrgMember(body: {
 export async function resendWelcome(slug: string) {
   const { data } = await api.post<{ detail: string }>(
     `/api/orgs/members/${slug}/resend-welcome/`,
+  );
+  return data;
+}
+
+export async function suspendMember(slug: string) {
+  const { data } = await api.post<{ detail: string }>(
+    `/api/orgs/members/${slug}/suspend/`,
+  );
+  return data;
+}
+
+export async function unsuspendMember(slug: string) {
+  const { data } = await api.post<{ detail: string }>(
+    `/api/orgs/members/${slug}/unsuspend/`,
   );
   return data;
 }

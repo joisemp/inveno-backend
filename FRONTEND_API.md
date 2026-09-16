@@ -246,6 +246,15 @@ The link contains `uid` and `token` query parameters.
 }
 ```
 
+**Error `400` — account suspended:**
+```json
+{
+  "non_field_errors": [
+    "Your account has been suspended. Please contact your administrator."
+  ]
+}
+```
+
 **Error `400` — missing fields:**
 ```json
 {
@@ -476,6 +485,14 @@ Warehouse managers and super admins receive `403` on these endpoints.
 
 Paginated (`count` / `next` / `previous` / `results`, page size 20).
 
+Optional query: `status=active` or `status=suspended`. Omit `status` to return
+every member. `is_active` on each item is `false` when the user is suspended.
+
+**Error `400` — invalid status:**
+```json
+{ "status": ["Must be \"active\" or \"suspended\"."] }
+```
+
 **Success `200`:**
 ```json
 {
@@ -584,6 +601,78 @@ have **not** set a password yet can be resent.
 **Error `400` — password already set:**
 ```json
 { "detail": "This user has already set a password." }
+```
+
+**Error `401`:** see [Shared Error Responses](#401--not-authenticated)
+
+**Error `403`:** not a central admin, or the organisation is suspended.
+```json
+{ "detail": "You do not have permission to perform this action." }
+```
+
+**Error `404` — unknown slug, or the member belongs to another organisation:**
+```json
+{ "detail": "Not found." }
+```
+
+---
+
+### Suspend Member
+
+| | |
+|---|---|
+| **Method / URL** | `POST /api/orgs/members/{slug}/suspend/` |
+| **Auth** | Bearer access token — **central admin** of an active org |
+
+No request body. Sets `is_active` to `false`. The member cannot log in afterwards.
+You cannot suspend your own account.
+
+**Success `200`:**
+```json
+{ "detail": "User suspended." }
+```
+
+**Error `400` — already suspended:**
+```json
+{ "detail": "This user is already suspended." }
+```
+
+**Error `400` — cannot suspend self:**
+```json
+{ "detail": "You cannot suspend your own account." }
+```
+
+**Error `401`:** see [Shared Error Responses](#401--not-authenticated)
+
+**Error `403`:** not a central admin, or the organisation is suspended.
+```json
+{ "detail": "You do not have permission to perform this action." }
+```
+
+**Error `404` — unknown slug, or the member belongs to another organisation:**
+```json
+{ "detail": "Not found." }
+```
+
+---
+
+### Unsuspend Member
+
+| | |
+|---|---|
+| **Method / URL** | `POST /api/orgs/members/{slug}/unsuspend/` |
+| **Auth** | Bearer access token — **central admin** of an active org |
+
+No request body. Sets `is_active` to `true`.
+
+**Success `200`:**
+```json
+{ "detail": "User unsuspended." }
+```
+
+**Error `400` — not suspended:**
+```json
+{ "detail": "This user is not suspended." }
 ```
 
 **Error `401`:** see [Shared Error Responses](#401--not-authenticated)
@@ -993,4 +1082,5 @@ You will see the full email body including the password reset or Get Started lin
 |---|---|---|
 | 1.0.0 | 2026-09-08 | Initial release |
 | 1.1.0 | 2026-09-14 | Full success/error payloads per endpoint; register removed |
-| 1.2.0 | 2026-09-15 | Org member API: list/add/resend welcome (`/api/orgs/members/`); `warehouse_manager` role
+| 1.2.0 | 2026-09-15 | Org member API: list/add/resend welcome (`/api/orgs/members/`); `warehouse_manager` role |
+| 1.3.0 | 2026-09-16 | Suspend / unsuspend members; `?status=` filter; login `400` for suspended accounts |

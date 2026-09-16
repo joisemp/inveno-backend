@@ -15,10 +15,17 @@ from rest_framework.test import APIClient
 from apps.organizations.models import Organization
 from apps.organizations.services import (
     ALREADY_SET_PASSWORD,
+    ALREADY_SUSPENDED,
+    CANNOT_SUSPEND_SELF,
     DUPLICATE_EMAIL,
     INVALID_USER_TYPE,
+    NOT_SUSPENDED,
+    USER_SUSPENDED,
+    USER_UNSUSPENDED,
     create_org_user,
     create_org_with_central_admin,
+    suspend_org_user,
+    unsuspend_org_user,
 )
 from apps.users.models import UserProfile
 
@@ -41,6 +48,14 @@ def _payload(**overrides):
 
 def _resend_url(slug: str) -> str:
     return f"{MEMBERS_URL}{slug}/resend-welcome/"
+
+
+def _suspend_url(slug: str) -> str:
+    return f"{MEMBERS_URL}{slug}/suspend/"
+
+
+def _unsuspend_url(slug: str) -> str:
+    return f"{MEMBERS_URL}{slug}/unsuspend/"
 
 
 @pytest.mark.django_db
@@ -187,6 +202,30 @@ class TestOrgMemberListCreate:
         assert auth_client.get(MEMBERS_URL).status_code == 403
         assert auth_client.post(MEMBERS_URL, _payload(), format="json").status_code == 403
 
+    def test_list_status_active(self, auth_client, test_user, warehouse_manager):
+        warehouse_manager.is_active = False
+        warehouse_manager.save()
+        response = auth_client.get(MEMBERS_URL, {"status": "active"})
+        assert response.status_code == 200
+        slugs = {row["slug"] for row in response.json()["results"]}
+        assert test_user.profile.slug in slugs
+        assert warehouse_manager.profile.slug not in slugs
+
+    def test_list_status_suspended(self, auth_client, test_user, warehouse_manager):
+        warehouse_manager.is_active = False
+        warehouse_manager.save()
+        response = auth_client.get(MEMBERS_URL, {"status": "suspended"})
+        assert response.status_code == 200
+        slugs = {row["slug"] for row in response.json()["results"]}
+        assert warehouse_manager.profile.slug in slugs
+        assert test_user.profile.slug not in slugs
+        assert all(row["is_active"] is False for row in response.json()["results"])
+
+    def test_list_invalid_status(self, auth_client):
+        response = auth_client.get(MEMBERS_URL, {"status": "nope"})
+        assert response.status_code == 400
+        assert "status" in response.json()
+
 
 @pytest.mark.django_db
 class TestOrgMemberResendWelcome:
@@ -255,10 +294,147 @@ class TestOrgMemberResendWelcome:
     def test_inactive_org_forbidden(self, auth_client, test_org, test_user):
         test_org.is_active = False
         test_org.save()
-        response = auth_client.post(
+        assert auth_client.post(
             _resend_url(test_user.profile.slug), format="json"
+        ).status_code == 403
+
+
+@pytest.mark.django_db
+class TestSetOrgUserActive:
+    def test_suspend_and_unsuspend(self, test_org, warehouse_manager, test_user):
+        suspend_org_user(
+            org=test_org,
+            slug=warehouse_manager.profile.slug,
+            acting_user=test_user,
         )
-        assert response.status_code == 403
+        warehouse_manager.refresh_from_db()
+        assert warehouse_manager.is_active is False
+
+        unsuspend_org_user(
+            org=test_org,
+            slug=warehouse_manager.profile.slug,
+            acting_user=test_user,
+        )
+        warehouse_manager.refresh_from_db()
+        assert warehouse_manager.is_active is True
+
+    def test_cannot_suspend_self(self, test_org, test_user):
+        with pytest.raises(ValidationError) as exc:
+            suspend_org_user(
+                org=test_org,
+                slug=test_user.profile.slug,
+                acting_user=test_user,
+            )
+        assert CANNOT_SUSPEND_SELF in exc.value.messages
+
+    def test_other_org_slug_missing(self, test_org, test_user):
+        other_org = Organization.objects.create(
+            name="Other Org", org_suffix="other_org_suspend"
+        )
+        other = create_org_user(
+            org=other_org,
+            email="outsider@example.com",
+            first_name="Out",
+            last_name="Sider",
+            user_type=UserProfile.UserType.WAREHOUSE_MANAGER,
+            send_email=False,
+        )
+        with pytest.raises(UserProfile.DoesNotExist):
+            suspend_org_user(
+                org=test_org,
+                slug=other.profile.slug,
+                acting_user=test_user,
+            )
+
+
+@pytest.mark.django_db
+class TestOrgMemberSuspendUnsuspend:
+    def test_suspend_by_slug(self, auth_client, warehouse_manager):
+        response = auth_client.post(
+            _suspend_url(warehouse_manager.profile.slug), format="json"
+        )
+        assert response.status_code == 200
+        assert response.json() == {"detail": USER_SUSPENDED}
+        warehouse_manager.refresh_from_db()
+        assert warehouse_manager.is_active is False
+
+    def test_unsuspend_by_slug(self, auth_client, warehouse_manager):
+        warehouse_manager.is_active = False
+        warehouse_manager.save()
+        response = auth_client.post(
+            _unsuspend_url(warehouse_manager.profile.slug), format="json"
+        )
+        assert response.status_code == 200
+        assert response.json() == {"detail": USER_UNSUSPENDED}
+        warehouse_manager.refresh_from_db()
+        assert warehouse_manager.is_active is True
+
+    def test_already_suspended(self, auth_client, warehouse_manager):
+        warehouse_manager.is_active = False
+        warehouse_manager.save()
+        response = auth_client.post(
+            _suspend_url(warehouse_manager.profile.slug), format="json"
+        )
+        assert response.status_code == 400
+        assert response.json() == {"detail": ALREADY_SUSPENDED}
+
+    def test_already_active(self, auth_client, warehouse_manager):
+        response = auth_client.post(
+            _unsuspend_url(warehouse_manager.profile.slug), format="json"
+        )
+        assert response.status_code == 400
+        assert response.json() == {"detail": NOT_SUSPENDED}
+
+    def test_cannot_suspend_self(self, auth_client, test_user):
+        response = auth_client.post(
+            _suspend_url(test_user.profile.slug), format="json"
+        )
+        assert response.status_code == 400
+        assert response.json() == {"detail": CANNOT_SUSPEND_SELF}
+
+    def test_unknown_slug(self, auth_client):
+        assert auth_client.post(
+            _suspend_url("does-not-exist"), format="json"
+        ).status_code == 404
+
+    def test_other_org_slug_not_found(self, auth_client):
+        other_org = Organization.objects.create(
+            name="Other Org", org_suffix="other_org_api"
+        )
+        other = create_org_user(
+            org=other_org,
+            email="other2@example.com",
+            first_name="Other",
+            last_name="Two",
+            user_type=UserProfile.UserType.WAREHOUSE_MANAGER,
+            send_email=False,
+        )
+        assert auth_client.post(
+            _suspend_url(other.profile.slug), format="json"
+        ).status_code == 404
+
+    def test_warehouse_manager_forbidden(self, warehouse_client, test_user):
+        assert warehouse_client.post(
+            _suspend_url(test_user.profile.slug), format="json"
+        ).status_code == 403
+
+    def test_superuser_forbidden(self, superuser_client, warehouse_manager):
+        assert superuser_client.post(
+            _suspend_url(warehouse_manager.profile.slug), format="json"
+        ).status_code == 403
+
+    def test_unauthenticated(self, warehouse_manager):
+        client = APIClient()
+        assert client.post(
+            _suspend_url(warehouse_manager.profile.slug), format="json"
+        ).status_code == 401
+
+    def test_inactive_org_forbidden(self, auth_client, test_org, warehouse_manager):
+        test_org.is_active = False
+        test_org.save()
+        assert auth_client.post(
+            _suspend_url(warehouse_manager.profile.slug), format="json"
+        ).status_code == 403
 
 
 @pytest.mark.django_db
