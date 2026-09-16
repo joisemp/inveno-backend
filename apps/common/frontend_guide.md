@@ -18,7 +18,7 @@ central admin in Django Admin. Central admins then add further org users via
 |---|---|---|---|
 | `super_admin` | yes | always `null` | Platform admin; no org-scoped screens |
 | `central_admin` | no | required | Org-scoped app, including member management; blocked if `org.is_active` is false |
-| `warehouse_manager` | no | required | Org-scoped app; **cannot** manage members; blocked if `org.is_active` is false |
+| `warehouse_manager` | no | required | Org-scoped app including vendors; **cannot** manage members; blocked if `org.is_active` is false |
 
 Use `GET /api/auth/me/` as the source of truth for routing. JWT claims are a
 hint for the first paint only.
@@ -89,6 +89,7 @@ Still call `GET /api/auth/me/` after login. `/me` includes names, phone, and
 | `POST /api/auth/login/`, refresh, verify, password set/reset | Public (throttled 10/min) |
 | Most `/api/auth/*` | `IsAuthenticated` (Bearer) |
 | `GET/POST /api/orgs/members/`, resend welcome, suspend, unsuspend | Central admin of an active org |
+| `/api/orgs/vendors/` (list/add/get/patch/suspend) | Central admin or warehouse manager of an active org |
 | `/api/docs/`, `/api/docs/frontend/`, `/api/redoc/`, `/api/schema/` | Staff session or staff JWT |
 
 If the org is suspended, login returns `400`:
@@ -113,6 +114,7 @@ If the **account** is suspended, login returns `400`:
 
 Gate org UI with `central_admin` **or** `warehouse_manager` and `org?.is_active`.
 Gate **member management** (list/add/resend) with `profile.user_type === "central_admin"`.
+Vendor screens are allowed for both org roles.
 A `403` from any authenticated route means the user is logged in but not allowed
 — do not try to refresh the token for that.
 
@@ -228,6 +230,30 @@ export type Paginated<T> = {
   previous: string | null;
   results: T[];
 };
+
+export type Vendor = {
+  slug: string;
+  name: string;
+  contact_name: string;
+  phone: string;
+  email: string;
+  address: string;
+  gst: string;
+  website: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type VendorWrite = {
+  name: string;
+  contact_name: string;
+  phone: string;
+  address: string;
+  email?: string;
+  gst?: string;
+  website?: string;
+};
 ```
 
 ### `src/lib/api.ts`
@@ -242,6 +268,8 @@ import type {
   OrgMember,
   Paginated,
   TokenPair,
+  Vendor,
+  VendorWrite,
 } from "./types";
 
 const TOKEN_KEY = "inveno.tokens";
@@ -383,6 +411,42 @@ export async function suspendMember(slug: string) {
 export async function unsuspendMember(slug: string) {
   const { data } = await api.post<{ detail: string }>(
     `/api/orgs/members/${slug}/unsuspend/`,
+  );
+  return data;
+}
+
+export async function listVendors(status?: "active" | "suspended") {
+  const { data } = await api.get<Paginated<Vendor>>("/api/orgs/vendors/", {
+    params: status ? { status } : undefined,
+  });
+  return data;
+}
+
+export async function addVendor(body: VendorWrite) {
+  const { data } = await api.post<Vendor>("/api/orgs/vendors/", body);
+  return data;
+}
+
+export async function getVendor(slug: string) {
+  const { data } = await api.get<Vendor>(`/api/orgs/vendors/${slug}/`);
+  return data;
+}
+
+export async function updateVendor(slug: string, body: Partial<VendorWrite>) {
+  const { data } = await api.patch<Vendor>(`/api/orgs/vendors/${slug}/`, body);
+  return data;
+}
+
+export async function suspendVendor(slug: string) {
+  const { data } = await api.post<{ detail: string }>(
+    `/api/orgs/vendors/${slug}/suspend/`,
+  );
+  return data;
+}
+
+export async function unsuspendVendor(slug: string) {
+  const { data } = await api.post<{ detail: string }>(
+    `/api/orgs/vendors/${slug}/unsuspend/`,
   );
   return data;
 }

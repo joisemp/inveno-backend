@@ -689,6 +689,190 @@ No request body. Sets `is_active` to `true`.
 
 ---
 
+## Vendors
+
+Central admins **and** warehouse managers manage vendors in **their own
+organisation**. There is no delete — suspend instead. Public identifier is
+**`slug`**. Super admins receive `403`.
+
+### List Vendors
+
+| | |
+|---|---|
+| **Method / URL** | `GET /api/orgs/vendors/` |
+| **Auth** | Bearer — central admin or warehouse manager of an active org |
+
+Paginated. Optional `status=active` or `status=suspended`.
+
+**Success `200`:**
+```json
+{
+  "count": 1,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "slug": "acme-supplies",
+      "name": "Acme Supplies",
+      "contact_name": "Jane Doe",
+      "phone": "+15551234",
+      "email": "jane@acme.com",
+      "address": "12 Warehouse Rd",
+      "gst": "22AAAAA0000A1Z5",
+      "website": "https://acme.example",
+      "is_active": true,
+      "created_at": "2026-09-16T10:00:00Z",
+      "updated_at": "2026-09-16T10:00:00Z"
+    }
+  ]
+}
+```
+
+**Error `400` — invalid status:**
+```json
+{ "status": ["Must be \"active\" or \"suspended\"."] }
+```
+
+**Error `401`:** see [Shared Error Responses](#401--not-authenticated)
+
+**Error `403`:**
+```json
+{ "detail": "You do not have permission to perform this action." }
+```
+
+---
+
+### Add Vendor
+
+| | |
+|---|---|
+| **Method / URL** | `POST /api/orgs/vendors/` |
+| **Auth** | Bearer — central admin or warehouse manager of an active org |
+
+`slug` is generated. Required: `name`, `contact_name`, `phone`, `address`.
+Optional: `email`, `gst`, `website`.
+
+**Request:**
+```json
+{
+  "name": "Acme Supplies",
+  "contact_name": "Jane Doe",
+  "phone": "+15551234",
+  "address": "12 Warehouse Rd",
+  "email": "jane@acme.com",
+  "gst": "22AAAAA0000A1Z5",
+  "website": "https://acme.example"
+}
+```
+
+**Success `201`:** same object shape as a list item.
+
+**Error `400` — duplicate name in this org:**
+```json
+{ "name": ["A vendor with this name already exists."] }
+```
+
+**Error `401` / `403`:** as list.
+
+---
+
+### Get Vendor
+
+| | |
+|---|---|
+| **Method / URL** | `GET /api/orgs/vendors/{slug}/` |
+| **Auth** | Bearer — central admin or warehouse manager of an active org |
+
+**Success `200`:** vendor object (no `id`).
+
+**Error `404`:**
+```json
+{ "detail": "Not found." }
+```
+
+---
+
+### Update Vendor
+
+| | |
+|---|---|
+| **Method / URL** | `PATCH /api/orgs/vendors/{slug}/` |
+| **Auth** | Bearer — central admin or warehouse manager of an active org |
+
+Any subset of create fields. `slug`, `org`, and `is_active` are not writable
+here (use suspend/unsuspend).
+
+**Request:**
+```json
+{ "phone": "+1999" }
+```
+
+**Success `200`:** updated vendor object.
+
+**Error `400` — duplicate name:**
+```json
+{ "name": ["A vendor with this name already exists."] }
+```
+
+**Error `404`:**
+```json
+{ "detail": "Not found." }
+```
+
+---
+
+### Suspend Vendor
+
+| | |
+|---|---|
+| **Method / URL** | `POST /api/orgs/vendors/{slug}/suspend/` |
+| **Auth** | Bearer — central admin or warehouse manager of an active org |
+
+No request body.
+
+**Success `200`:**
+```json
+{ "detail": "Vendor suspended." }
+```
+
+**Error `400` — already suspended:**
+```json
+{ "detail": "This vendor is already suspended." }
+```
+
+**Error `404`:**
+```json
+{ "detail": "Not found." }
+```
+
+---
+
+### Unsuspend Vendor
+
+| | |
+|---|---|
+| **Method / URL** | `POST /api/orgs/vendors/{slug}/unsuspend/` |
+| **Auth** | Bearer — central admin or warehouse manager of an active org |
+
+No request body.
+
+**Success `200`:**
+```json
+{ "detail": "Vendor unsuspended." }
+```
+
+**Error `400` — not suspended:**
+```json
+{ "detail": "This vendor is not suspended." }
+```
+
+**Error `404`:**
+```json
+{ "detail": "Not found." }
+```
+
+---
+
 ## Password Management
 
 ### Change Password (authenticated)
@@ -1084,3 +1268,4 @@ You will see the full email body including the password reset or Get Started lin
 | 1.1.0 | 2026-09-14 | Full success/error payloads per endpoint; register removed |
 | 1.2.0 | 2026-09-15 | Org member API: list/add/resend welcome (`/api/orgs/members/`); `warehouse_manager` role |
 | 1.3.0 | 2026-09-16 | Suspend / unsuspend members; `?status=` filter; login `400` for suspended accounts |
+| 1.4.0 | 2026-09-16 | Vendor API: list/add/get/update/suspend (`/api/orgs/vendors/`) |
