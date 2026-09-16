@@ -10,6 +10,8 @@ manager) and optionally sends the welcome / get-started email.
 resend_org_user_welcome() re-sends that email for a member who has not set a
 password yet.
 
+set_org_user_active() suspends or unsuspends a member (User.is_active).
+
 Everything that writes to the DB runs in one atomic transaction so a failure
 rolls back all changes.
 """
@@ -28,6 +30,11 @@ User = get_user_model()
 ALREADY_SET_PASSWORD = "This user has already set a password."
 DUPLICATE_EMAIL = "A user with this email already exists."
 INVALID_USER_TYPE = "Cannot assign this user type."
+ALREADY_SUSPENDED = "This user is already suspended."
+NOT_SUSPENDED = "This user is not suspended."
+CANNOT_SUSPEND_SELF = "You cannot suspend your own account."
+USER_SUSPENDED = "User suspended."
+USER_UNSUSPENDED = "User unsuspended."
 
 
 @transaction.atomic
@@ -180,3 +187,52 @@ def resend_org_user_welcome(*, org: Organization, slug: str):
 
     send_welcome_email(profile.user)
     return profile.user
+
+
+def set_org_user_active(*, org: Organization, slug: str, is_active: bool, acting_user):
+    """
+    Suspend or unsuspend the org member identified by *slug*.
+
+    *acting_user* is the central admin performing the action.  They cannot
+    suspend themselves.
+
+    Raises
+    ------
+    UserProfile.DoesNotExist — unknown slug or not in *org*.
+    ValidationError          — self-suspend, or already in the requested state.
+    """
+    profile = get_org_member_profile(org=org, slug=slug)
+    user = profile.user
+
+    if not is_active and user.pk == acting_user.pk:
+        raise ValidationError({"detail": CANNOT_SUSPEND_SELF})
+
+    if is_active and user.is_active:
+        raise ValidationError({"detail": NOT_SUSPENDED})
+    if not is_active and not user.is_active:
+        raise ValidationError({"detail": ALREADY_SUSPENDED})
+
+    user.is_active = is_active
+    user.save(update_fields=["is_active"])
+
+    logger.info(
+        "%s user '%s' in org '%s'",
+        "Unsuspended" if is_active else "Suspended",
+        user.email,
+        org.org_suffix,
+    )
+    return user
+
+
+def suspend_org_user(*, org: Organization, slug: str, acting_user):
+    """Set the member's User.is_active to False."""
+    return set_org_user_active(
+        org=org, slug=slug, is_active=False, acting_user=acting_user
+    )
+
+
+def unsuspend_org_user(*, org: Organization, slug: str, acting_user):
+    """Set the member's User.is_active to True."""
+    return set_org_user_active(
+        org=org, slug=slug, is_active=True, acting_user=acting_user
+    )
