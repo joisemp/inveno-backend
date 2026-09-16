@@ -1,0 +1,26 @@
+---
+description: Commit after each major completed step without being asked, unless the user says not to
+alwaysApply: true
+---
+
+# Git commits after major steps
+
+After each **meaningful completed unit of work**, create a conventional commit immediately. Do not wait for the whole task. Do not ask permission.
+
+Skip only if the user explicitly said not to commit for this task.
+
+## What to commit
+
+- One commit per major step (service, API, login gate, tests/docs, a finished bugfix)
+- Conventional prefixes: `feat:`, `fix:`, `test:`, `docs:`, `refactor:`
+- Message is 1–2 sentences on **why**, not a file dump
+
+## Safety
+
+- Never commit `.env`, credentials, or secrets
+- Never update git config, force-push, hard-reset, skip hooks, or amend unless the usual amend conditions are all met
+- PowerShell: chain with `;` not `&&`; pass the message with a here-string, not `-i`
+
+## Reply
+
+Do not narrate that you committed unless a commit failed or the user asks.
