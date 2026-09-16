@@ -9,6 +9,8 @@ from django.urls import path
 from apps.organizations.views import (
     OrgMemberListCreateView,
     OrgMemberResendWelcomeView,
+    OrgMemberSuspendView,
+    OrgMemberUnsuspendView,
 )
 
 app_name = "organizations"
@@ -19,5 +21,15 @@ urlpatterns = [
         "members/<slug:slug>/resend-welcome/",
         OrgMemberResendWelcomeView.as_view(),
         name="member-resend-welcome",
+    ),
+    path(
+        "members/<slug:slug>/suspend/",
+        OrgMemberSuspendView.as_view(),
+        name="member-suspend",
+    ),
+    path(
+        "members/<slug:slug>/unsuspend/",
+        OrgMemberUnsuspendView.as_view(),
+        name="member-unsuspend",
     ),
 ]

@@ -15,6 +15,8 @@ EXPECTED_PATHS = [
     "/api/auth/password/set/",
     "/api/orgs/members/",
     "/api/orgs/members/{slug}/resend-welcome/",
+    "/api/orgs/members/{slug}/suspend/",
+    "/api/orgs/members/{slug}/unsuspend/",
     "/api/schema/",
     "/api/docs/",
     "/api/docs/frontend/",
@@ -49,13 +51,21 @@ def test_org_members_schema_documents_success_and_errors():
     for code in ("201", "400", "401", "403"):
         assert code in post, f"members POST missing response {code}"
     get = schema["paths"]["/api/orgs/members/"]["get"]["responses"]
-    for code in ("200", "401", "403"):
+    for code in ("200", "400", "401", "403"):
         assert code in get, f"members GET missing response {code}"
     resend = schema["paths"]["/api/orgs/members/{slug}/resend-welcome/"]["post"][
         "responses"
     ]
     for code in ("200", "400", "401", "403", "404"):
         assert code in resend, f"resend missing response {code}"
+    suspend = schema["paths"]["/api/orgs/members/{slug}/suspend/"]["post"]["responses"]
+    for code in ("200", "400", "401", "403", "404"):
+        assert code in suspend, f"suspend missing response {code}"
+    unsuspend = schema["paths"]["/api/orgs/members/{slug}/unsuspend/"]["post"][
+        "responses"
+    ]
+    for code in ("200", "400", "401", "403", "404"):
+        assert code in unsuspend, f"unsuspend missing response {code}"
 
 
 @pytest.mark.django_db
