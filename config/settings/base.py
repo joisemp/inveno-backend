@@ -44,6 +44,7 @@ LOCAL_APPS = [
     "apps.common",
     "apps.users",
     "apps.organizations",
+    "apps.vendors",
     "apps.healthcheck",
 ]
 
