@@ -75,6 +75,7 @@ urlpatterns = [
     # API v1
     path("api/", include("apps.healthcheck.urls")),
     path("api/auth/", include("apps.users.urls")),
+    path("api/orgs/", include("apps.organizations.urls")),
 
     # API Documentation — superuser only (log in at /admin/ first)
     path("api/schema/", DocumentedSchemaView.as_view(), name="schema"),

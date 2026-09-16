@@ -10,7 +10,7 @@ UserProfile — display identity (name, phone), user role, and org FK.
 
 Org link rule (enforced in UserProfile.clean):
   - staff / superuser  → org must be None  (user_type = super_admin)
-  - non-staff          → org is required   (user_type = central_admin or other)
+  - non-staff          → org is required   (user_type = central_admin or warehouse_manager)
 """
 import uuid
 
@@ -107,13 +107,23 @@ class UserProfile(UUIDModel, SlugMixin):
 
     Org link rule:
       - Staff / superusers   → user_type = SUPER_ADMIN,  org = None
-      - Non-staff users      → user_type = CENTRAL_ADMIN (or future types),
+      - Non-staff users      → user_type = CENTRAL_ADMIN or WAREHOUSE_MANAGER,
                                org = required (FK to Organization)
     """
 
     class UserType(models.TextChoices):
         SUPER_ADMIN = "super_admin", _("Super Admin")
         CENTRAL_ADMIN = "central_admin", _("Central Admin")
+        WAREHOUSE_MANAGER = "warehouse_manager", _("Warehouse Manager")
+
+    # Roles a central admin may assign when adding an org user.
+    # super_admin is platform-only and is never in this set.
+    ORG_ASSIGNABLE_TYPES = frozenset(
+        {
+            UserType.CENTRAL_ADMIN,
+            UserType.WAREHOUSE_MANAGER,
+        }
+    )
 
     user = models.OneToOneField(
         User,

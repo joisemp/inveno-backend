@@ -9,7 +9,9 @@ test_user       — a central-admin User (with profile linked to test_org)
 auth_client     — DRF client authenticated as test_user via JWT
 superuser       — a staff/superuser with a super_admin profile (auto-created
                   by the post_save signal)
-superuser_client— DRF client authenticated as the superuser
+superuser_client   — DRF client authenticated as the superuser
+warehouse_manager  — a warehouse-manager User linked to test_org
+warehouse_client   — DRF client authenticated as warehouse_manager
 """
 import pytest
 from django.contrib.auth import get_user_model
@@ -89,5 +91,34 @@ def superuser_client(api_client, superuser):
     from rest_framework_simplejwt.tokens import RefreshToken
 
     refresh = RefreshToken.for_user(superuser)
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {str(refresh.access_token)}")
+    return api_client
+
+
+@pytest.fixture
+def warehouse_manager(db, test_org):
+    """A warehouse-manager User with a profile linked to test_org."""
+    from apps.users.models import UserProfile
+
+    user = User.objects.create_user(
+        email="warehouse@example.com",
+        password="StrongPass123!",
+    )
+    UserProfile.objects.create(
+        user=user,
+        user_type=UserProfile.UserType.WAREHOUSE_MANAGER,
+        first_name="Ware",
+        last_name="House",
+        org=test_org,
+    )
+    return user
+
+
+@pytest.fixture
+def warehouse_client(api_client, warehouse_manager):
+    """DRF test client authenticated as warehouse_manager via JWT."""
+    from rest_framework_simplejwt.tokens import RefreshToken
+
+    refresh = RefreshToken.for_user(warehouse_manager)
     api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {str(refresh.access_token)}")
     return api_client

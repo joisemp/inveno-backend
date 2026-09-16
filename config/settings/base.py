@@ -239,6 +239,7 @@ SPECTACULAR_SETTINGS = {
         "| Tag | Base path |\n"
         "|-----|-----------|\n"
         "| Auth | `/api/auth/` |\n"
+        "| Organisation | `/api/orgs/` |\n"
         "| System | `/api/health/` |"
     ),
     "VERSION": "1.0.0",
@@ -246,6 +247,10 @@ SPECTACULAR_SETTINGS = {
         {
             "name": "Auth",
             "description": "JWT login, session, profile, and password flows.",
+        },
+        {
+            "name": "Organisation",
+            "description": "Organisation members — central-admin only.",
         },
         {
             "name": "System",

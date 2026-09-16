@@ -1,13 +1,22 @@
 """
-Organisation registration service.
+Organisation registration and member-provisioning services.
 
-create_org_with_central_admin() is the single entry point for registering a
-new Organisation together with its first central admin.  Everything runs in
-one atomic transaction so a failure rolls back all DB changes.
+create_org_with_central_admin() registers a new Organisation together with
+its first central admin.
+
+create_org_user() adds a user to an existing org (central admin or warehouse
+manager) and optionally sends the welcome / get-started email.
+
+resend_org_user_welcome() re-sends that email for a member who has not set a
+password yet.
+
+Everything that writes to the DB runs in one atomic transaction so a failure
+rolls back all changes.
 """
 import logging
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from apps.organizations.models import Organization
@@ -15,6 +24,76 @@ from apps.users.models import UserProfile
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
+
+ALREADY_SET_PASSWORD = "This user has already set a password."
+DUPLICATE_EMAIL = "A user with this email already exists."
+INVALID_USER_TYPE = "Cannot assign this user type."
+
+
+@transaction.atomic
+def create_org_user(
+    *,
+    org: Organization,
+    email: str,
+    first_name: str,
+    last_name: str,
+    phone: str = "",
+    user_type: str,
+    send_email: bool = True,
+):
+    """
+    Create a non-staff User + UserProfile linked to *org*.
+
+    The user is created with an unusable password.  They set it via the
+    welcome-email get-started link (POST /api/auth/password/set/).
+
+    *user_type* must be one of UserProfile.ORG_ASSIGNABLE_TYPES
+    (central_admin or warehouse_manager).  super_admin is rejected.
+
+    Returns the User.
+
+    Raises
+    ------
+    ValidationError  — duplicate email or disallowed user_type.
+    """
+    if user_type not in UserProfile.ORG_ASSIGNABLE_TYPES:
+        raise ValidationError({"user_type": INVALID_USER_TYPE})
+
+    if User.objects.filter(email=email).exists():
+        raise ValidationError({"email": DUPLICATE_EMAIL})
+
+    user = User.objects.create_user(
+        email=email,
+        password=None,
+        is_staff=False,
+        is_superuser=False,
+        is_active=True,
+    )
+    user.set_unusable_password()
+    user.save()
+
+    UserProfile.objects.create(
+        user=user,
+        user_type=user_type,
+        first_name=first_name,
+        last_name=last_name,
+        phone=phone,
+        org=org,
+    )
+
+    logger.info(
+        "Created %s '%s' for org '%s'",
+        user_type,
+        email,
+        org.org_suffix,
+    )
+
+    if send_email:
+        from apps.users.emails import send_welcome_email  # noqa: PLC0415
+
+        send_welcome_email(user)
+
+    return user
 
 
 @transaction.atomic
@@ -35,9 +114,7 @@ def create_org_with_central_admin(
     Steps
     -----
     1. Create Organisation (slug auto-generated).
-    2. Create User with an unusable password (is_staff=False).
-    3. Create UserProfile linking the user to the org as central_admin.
-    4. Optionally send the welcome / get-started email.
+    2. Delegate user + profile + optional welcome email to create_org_user().
 
     Returns
     -------
@@ -45,38 +122,25 @@ def create_org_with_central_admin(
 
     Raises
     ------
-    IntegrityError  — if org_suffix or admin_email is already taken.
+    IntegrityError  — if org_suffix is already taken.
+    ValidationError — if admin_email is already taken.
     Any exception from send_welcome_email propagates (wrapped in the
     atomic transaction so DB changes are rolled back).
     """
-    # 1. Organisation
     org = Organization.objects.create(
         name=org_name,
         org_suffix=org_suffix,
         location=location,
     )
 
-    # 2. User — password is set via the welcome-email get-started link
-    user = User.objects.create_user(
+    user = create_org_user(
+        org=org,
         email=admin_email,
-        password=None,  # sets an unusable password
-        is_staff=False,
-        is_superuser=False,
-        is_active=True,
-    )
-    # Explicitly mark unusable (create_user with password=None already does
-    # this, but be explicit for clarity).
-    user.set_unusable_password()
-    user.save()
-
-    # 3. UserProfile
-    UserProfile.objects.create(
-        user=user,
-        user_type=UserProfile.UserType.CENTRAL_ADMIN,
         first_name=admin_first_name,
         last_name=admin_last_name,
         phone=admin_phone,
-        org=org,
+        user_type=UserProfile.UserType.CENTRAL_ADMIN,
+        send_email=send_email,
     )
 
     logger.info(
@@ -86,10 +150,33 @@ def create_org_with_central_admin(
         admin_email,
     )
 
-    # 4. Welcome email (local import avoids circular dependency)
-    if send_email:
-        from apps.users.emails import send_welcome_email  # noqa: PLC0415
-
-        send_welcome_email(user)
-
     return org, user
+
+
+def get_org_member_profile(*, org: Organization, slug: str) -> UserProfile:
+    """
+    Return the UserProfile for *slug* in *org*.
+
+    Raises UserProfile.DoesNotExist when the slug is unknown or belongs
+    to a different organisation.
+    """
+    return UserProfile.objects.select_related("user").get(org=org, slug=slug)
+
+
+def resend_org_user_welcome(*, org: Organization, slug: str):
+    """
+    Re-send the welcome / get-started email for a member identified by slug.
+
+    Raises
+    ------
+    UserProfile.DoesNotExist — unknown slug or not in *org*.
+    ValidationError          — the user already has a usable password.
+    """
+    profile = get_org_member_profile(org=org, slug=slug)
+    if profile.user.has_usable_password():
+        raise ValidationError({"detail": ALREADY_SET_PASSWORD})
+
+    from apps.users.emails import send_welcome_email  # noqa: PLC0415
+
+    send_welcome_email(profile.user)
+    return profile.user

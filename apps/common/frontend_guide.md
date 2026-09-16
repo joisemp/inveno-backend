@@ -11,12 +11,14 @@ Log in at `/admin/` first — this page is staff-only, same as Swagger.
 ## 1. Roles
 
 There is **no public register**. Super admins create organisations and the first
-central admin in Django Admin.
+central admin in Django Admin. Central admins then add further org users via
+`POST /api/orgs/members/`.
 
 | `user_type` | Staff? | `org` | What they can do in the UI |
 |---|---|---|---|
 | `super_admin` | yes | always `null` | Platform admin; no org-scoped screens |
-| `central_admin` | no | required | Org-scoped app; blocked if `org.is_active` is false |
+| `central_admin` | no | required | Org-scoped app, including member management; blocked if `org.is_active` is false |
+| `warehouse_manager` | no | required | Org-scoped app; **cannot** manage members; blocked if `org.is_active` is false |
 
 Use `GET /api/auth/me/` as the source of truth for routing. JWT claims are a
 hint for the first paint only.
@@ -26,12 +28,14 @@ hint for the first paint only.
 ## 2. Onboarding
 
 1. Super admin creates the org + first central admin in `/admin/`.
-2. The API emails a Get Started link: `{FRONTEND_URL}/get-started?uid=...&token=...`
+2. A central admin may add more users (`central_admin` or `warehouse_manager`)
+   with `POST /api/orgs/members/`.
+3. The API emails a Get Started link: `{FRONTEND_URL}/get-started?uid=...&token=...`
    (`FRONTEND_URL` defaults to `http://localhost:5173`).
-3. The Get Started page calls `POST /api/auth/password/set/` (public, 7-day
+4. The Get Started page calls `POST /api/auth/password/set/` (public, 7-day
    one-time token).
-4. Then `POST /api/auth/login/` with email + password.
-5. Store the JWT pair and call `GET /api/auth/me/`.
+5. Then `POST /api/auth/login/` with email + password.
+6. Store the JWT pair and call `GET /api/auth/me/`.
 
 The password-set token is **not** the same as the forgot-password token.
 
@@ -84,6 +88,7 @@ Still call `GET /api/auth/me/` after login. `/me` includes names, phone, and
 | `GET /api/health/` | Public |
 | `POST /api/auth/login/`, refresh, verify, password set/reset | Public (throttled 10/min) |
 | Most `/api/auth/*` | `IsAuthenticated` (Bearer) |
+| `GET/POST /api/orgs/members/`, resend welcome | Central admin of an active org |
 | `/api/docs/`, `/api/docs/frontend/`, `/api/redoc/`, `/api/schema/` | Staff session or staff JWT |
 
 If the org is suspended, login returns `400`:
@@ -96,7 +101,8 @@ If the org is suspended, login returns `400`:
 }
 ```
 
-Gate org UI with `profile.user_type === "central_admin"` and `org?.is_active`.
+Gate org UI with `central_admin` **or** `warehouse_manager` and `org?.is_active`.
+Gate **member management** (list/add/resend) with `profile.user_type === "central_admin"`.
 A `403` from any authenticated route means the user is logged in but not allowed
 — do not try to refresh the token for that.
 
@@ -154,7 +160,10 @@ Install the HTTP client: `npm i axios`.
 ### Types
 
 ```ts
-export type UserType = "super_admin" | "central_admin";
+export type UserType = "super_admin" | "central_admin" | "warehouse_manager";
+export type OrgAssignableUserType = "central_admin" | "warehouse_manager";
+
+export const ORG_USER_TYPES: UserType[] = ["central_admin", "warehouse_manager"];
 
 export type TokenPair = {
   access: string;
@@ -189,6 +198,26 @@ export type MeResponse = {
     registered_on: string;
   } | null;
 };
+
+export type OrgMember = {
+  slug: string;
+  email: string;
+  user_type: OrgAssignableUserType;
+  first_name: string;
+  last_name: string;
+  phone: string;
+  full_name: string;
+  is_active: boolean;
+  has_usable_password: boolean;
+  date_joined: string;
+};
+
+export type Paginated<T> = {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
+};
 ```
 
 ### `src/lib/api.ts`
@@ -197,7 +226,13 @@ Bearer interceptor, queued refresh-on-401, logout when refresh fails.
 
 ```ts
 import axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
-import type { MeResponse, TokenPair } from "./types";
+import type {
+  MeResponse,
+  OrgAssignableUserType,
+  OrgMember,
+  Paginated,
+  TokenPair,
+} from "./types";
 
 const TOKEN_KEY = "inveno.tokens";
 
@@ -302,6 +337,29 @@ export async function forgotPassword(email: string) {
   });
   return data;
 }
+
+export async function listOrgMembers() {
+  const { data } = await api.get<Paginated<OrgMember>>("/api/orgs/members/");
+  return data;
+}
+
+export async function addOrgMember(body: {
+  email: string;
+  first_name: string;
+  last_name: string;
+  phone?: string;
+  user_type: OrgAssignableUserType;
+}) {
+  const { data } = await api.post<OrgMember>("/api/orgs/members/", body);
+  return data;
+}
+
+export async function resendWelcome(slug: string) {
+  const { data } = await api.post<{ detail: string }>(
+    `/api/orgs/members/${slug}/resend-welcome/`,
+  );
+  return data;
+}
 ```
 
 Skip the interceptor refresh for `/api/auth/token/refresh/` itself (the snippet
@@ -313,9 +371,17 @@ uses a bare `axios.post` for that reason).
 import { Navigate, Outlet } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { getMe, getTokens } from "./lib/api";
-import type { MeResponse } from "./lib/types";
+import type { MeResponse, UserType } from "./lib/types";
 
-export function RequireAuth({ orgOnly = false }: { orgOnly?: boolean }) {
+const ORG_ROLES: UserType[] = ["central_admin", "warehouse_manager"];
+
+export function RequireAuth({
+  orgOnly = false,
+  centralAdminOnly = false,
+}: {
+  orgOnly?: boolean;
+  centralAdminOnly?: boolean;
+}) {
   const [me, setMe] = useState<MeResponse | null | undefined>(undefined);
 
   useEffect(() => {
@@ -329,8 +395,10 @@ export function RequireAuth({ orgOnly = false }: { orgOnly?: boolean }) {
   if (me === undefined) return null;
   if (!me) return <Navigate to="/login" replace />;
 
+  const role = me.profile?.user_type;
+
   if (orgOnly) {
-    if (me.profile?.user_type !== "central_admin") {
+    if (!role || !ORG_ROLES.includes(role)) {
       return <Navigate to="/admin-home" replace />;
     }
     if (!me.org?.is_active) {
@@ -338,12 +406,18 @@ export function RequireAuth({ orgOnly = false }: { orgOnly?: boolean }) {
     }
   }
 
+  if (centralAdminOnly && role !== "central_admin") {
+    return <Navigate to="/" replace />;
+  }
+
   return <Outlet context={{ me }} />;
 }
 ```
 
 - Unauthenticated → `/login`
-- `central_admin` + inactive org → show suspended, do not render org UI
+- Org routes (`orgOnly`): `central_admin` or `warehouse_manager` + active org
+- Member management (`centralAdminOnly`): `central_admin` only
+- Inactive org → show suspended, do not render org UI
 - `super_admin` → platform home, not org routes (`org` is `null`)
 
 ### Get Started page

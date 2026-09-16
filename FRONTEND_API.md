@@ -111,16 +111,20 @@ Auth endpoints (login, password set/reset) are limited to **10 requests / minute
 
 ### Overview
 
-> **Account creation is admin-only.**  
+> **Account creation is admin-driven.**  
 > A super admin registers organisations (and their first central admin) through
-> the Django Admin at `/admin/`.  The central admin receives a welcome email
-> with a *Get Started* link.  They click the link, set their password at
+> the Django Admin at `/admin/`.  After that, a **central admin** can add more
+> users to their organisation via `POST /api/orgs/members/` (`central_admin` or
+> `warehouse_manager`).  Each new user receives a welcome email with a
+> *Get Started* link.  They click the link, set their password at
 > `POST /api/auth/password/set/`, then log in normally.
 
 ```
-[Super admin] creates org + central admin in /admin/
-  → Welcome email sent to central admin
-  → Central admin clicks "Get Started" link
+[Super admin] creates org + first central admin in /admin/
+  — or —
+[Central admin] POST /api/orgs/members/  (email, names, user_type)
+  → Welcome email sent
+  → User clicks "Get Started" link
   → POST /api/auth/password/set/  (uid + token from URL + new_password)
   → POST /api/auth/login/         (email + password)
   → receive { access, refresh }
@@ -148,14 +152,15 @@ For super admins: `org_id` and `org_suffix` are `null`.
 
 ### ~~Register (disabled)~~
 
-`POST /api/auth/register/` is **not available**. Accounts are created by super
-admins through Django Admin.
+`POST /api/auth/register/` is **not available**. The first central admin is
+created by a super admin in Django Admin. Further org users are added by a
+central admin at `POST /api/orgs/members/`.
 
 ---
 
 ### 1. Set Password — Get-Started Link
 
-Used when a central admin clicks the *Get Started* link in their welcome email.
+Used when a new org user clicks the *Get Started* link in their welcome email.
 The link contains `uid` and `token` query parameters.
 
 | | |
@@ -446,6 +451,152 @@ Blacklists the refresh token so it cannot be used again.
 ```
 
 **Error `401`:** see [Shared Error Responses](#401--not-authenticated)
+
+---
+
+## Organisation Members
+
+Central admins manage users in **their own organisation**. The org is taken
+from the JWT; there is no `org_id` in the URL or body.
+
+Public identifier is **`slug`** (auto-generated from the member's name). UUID
+`id` is not returned.
+
+Assignable `user_type` values: `central_admin`, `warehouse_manager`.
+`super_admin` cannot be created here.
+
+Warehouse managers and super admins receive `403` on these endpoints.
+
+### List Members
+
+| | |
+|---|---|
+| **Method / URL** | `GET /api/orgs/members/` |
+| **Auth** | Bearer access token — **central admin** of an active org |
+
+Paginated (`count` / `next` / `previous` / `results`, page size 20).
+
+**Success `200`:**
+```json
+{
+  "count": 1,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "slug": "alice-smith",
+      "email": "alice@acme.com",
+      "user_type": "warehouse_manager",
+      "first_name": "Alice",
+      "last_name": "Smith",
+      "phone": "+15551234",
+      "full_name": "Alice Smith",
+      "is_active": true,
+      "has_usable_password": false,
+      "date_joined": "2026-09-15T10:00:00Z"
+    }
+  ]
+}
+```
+
+**Error `401`:** see [Shared Error Responses](#401--not-authenticated)
+
+**Error `403`:** not a central admin, or the organisation is suspended.
+```json
+{ "detail": "You do not have permission to perform this action." }
+```
+
+---
+
+### Add Member
+
+| | |
+|---|---|
+| **Method / URL** | `POST /api/orgs/members/` |
+| **Auth** | Bearer access token — **central admin** of an active org |
+
+Creates the account with an unusable password and sends the welcome /
+get-started email. `slug` is generated — do not send it.
+
+**Request:**
+```json
+{
+  "email": "alice@acme.com",
+  "first_name": "Alice",
+  "last_name": "Smith",
+  "phone": "+15551234",
+  "user_type": "warehouse_manager"
+}
+```
+
+`phone` is optional. `user_type` must be `central_admin` or `warehouse_manager`.
+
+**Success `201`:**
+```json
+{
+  "slug": "alice-smith",
+  "email": "alice@acme.com",
+  "user_type": "warehouse_manager",
+  "first_name": "Alice",
+  "last_name": "Smith",
+  "phone": "+15551234",
+  "full_name": "Alice Smith",
+  "is_active": true,
+  "has_usable_password": false,
+  "date_joined": "2026-09-15T10:00:00Z"
+}
+```
+
+**Error `400` — duplicate email:**
+```json
+{ "email": ["A user with this email already exists."] }
+```
+
+**Error `400` — invalid user type:**
+```json
+{ "user_type": ["\"super_admin\" is not a valid choice."] }
+```
+
+**Error `401`:** see [Shared Error Responses](#401--not-authenticated)
+
+**Error `403`:** not a central admin, or the organisation is suspended.
+```json
+{ "detail": "You do not have permission to perform this action." }
+```
+
+---
+
+### Resend Welcome Email
+
+| | |
+|---|---|
+| **Method / URL** | `POST /api/orgs/members/{slug}/resend-welcome/` |
+| **Auth** | Bearer access token — **central admin** of an active org |
+
+`{slug}` is the member's `UserProfile.slug`. No request body. Only members who
+have **not** set a password yet can be resent.
+
+**Success `200`:**
+```json
+{ "detail": "Welcome email sent." }
+```
+
+**Error `400` — password already set:**
+```json
+{ "detail": "This user has already set a password." }
+```
+
+**Error `401`:** see [Shared Error Responses](#401--not-authenticated)
+
+**Error `403`:** not a central admin, or the organisation is suspended.
+```json
+{ "detail": "You do not have permission to perform this action." }
+```
+
+**Error `404` — unknown slug, or the member belongs to another organisation:**
+```json
+{ "detail": "Not found." }
+```
 
 ---
 
@@ -842,3 +993,4 @@ You will see the full email body including the password reset or Get Started lin
 |---|---|---|
 | 1.0.0 | 2026-09-08 | Initial release |
 | 1.1.0 | 2026-09-14 | Full success/error payloads per endpoint; register removed |
+| 1.2.0 | 2026-09-15 | Org member API: list/add/resend welcome (`/api/orgs/members/`); `warehouse_manager` role

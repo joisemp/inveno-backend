@@ -13,6 +13,8 @@ EXPECTED_PATHS = [
     "/api/auth/password/reset/",
     "/api/auth/password/reset/confirm/",
     "/api/auth/password/set/",
+    "/api/orgs/members/",
+    "/api/orgs/members/{slug}/resend-welcome/",
     "/api/schema/",
     "/api/docs/",
     "/api/docs/frontend/",
@@ -37,6 +39,23 @@ def test_login_schema_documents_success_and_errors():
     responses = schema["paths"]["/api/auth/login/"]["post"]["responses"]
     for code in ("200", "400", "401", "429"):
         assert code in responses, f"login missing response {code}"
+
+
+@pytest.mark.django_db
+def test_org_members_schema_documents_success_and_errors():
+    """Member endpoints must declare success and auth/validation errors."""
+    schema = SchemaGenerator().get_schema(request=None, public=True)
+    post = schema["paths"]["/api/orgs/members/"]["post"]["responses"]
+    for code in ("201", "400", "401", "403"):
+        assert code in post, f"members POST missing response {code}"
+    get = schema["paths"]["/api/orgs/members/"]["get"]["responses"]
+    for code in ("200", "401", "403"):
+        assert code in get, f"members GET missing response {code}"
+    resend = schema["paths"]["/api/orgs/members/{slug}/resend-welcome/"]["post"][
+        "responses"
+    ]
+    for code in ("200", "400", "401", "403", "404"):
+        assert code in resend, f"resend missing response {code}"
 
 
 @pytest.mark.django_db

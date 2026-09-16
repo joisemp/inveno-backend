@@ -6,7 +6,7 @@ OrganizationAdmin provides:
   central admin's details.  On save it calls create_org_with_central_admin()
   so everything is created atomically.
 - A change view showing name / location / is_active plus an inline list of
-  linked central-admin profiles.
+  linked org member profiles.
 - An admin action to resend the welcome email to admins who haven't set a
   password yet.
 
@@ -66,11 +66,11 @@ class OrganizationAdminAddForm(forms.ModelForm):
 
 
 # ---------------------------------------------------------------------------
-# Central admin inline (shown on the change view only)
+# Org members inline (shown on the change view only)
 # ---------------------------------------------------------------------------
 
-class CentralAdminInline(admin.TabularInline):
-    """Read-only list of central admins linked to this org."""
+class OrgMembersInline(admin.TabularInline):
+    """Read-only list of org members linked to this organisation."""
 
     model = UserProfile
     fk_name = "org"
@@ -137,10 +137,10 @@ class OrganizationAdmin(admin.ModelAdmin):
         return super().get_fieldsets(request, obj)
 
     def get_inlines(self, request, obj):
-        """Show central-admin inline only on the change view."""
+        """Show org-member inline only on the change view."""
         if obj is None:
             return []
-        return [CentralAdminInline]
+        return [OrgMembersInline]
 
     def save_model(self, request, obj, form, change):
         """

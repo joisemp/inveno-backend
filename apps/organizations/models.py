@@ -2,8 +2,8 @@
 Organization model.
 
 An Organisation is registered by a super admin.  It may have one or more
-central admins, represented by UserProfile rows with user_type=central_admin
-and org=<this organization>.
+org users (central admins and warehouse managers), represented by
+UserProfile rows with org=<this organization>.
 
 Fields
 ------
