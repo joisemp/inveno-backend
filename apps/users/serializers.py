@@ -6,7 +6,7 @@ Auth serializers
 CustomTokenObtainPairSerializer — adds user_type / org_id / org_suffix JWT
                                   claims and checks account + org is_active
                                   on login.
-CustomTokenRefreshSerializer    — cookie (or body) refresh; rejects inactive users.
+CustomTokenRefreshSerializer    — cookie-only refresh; rejects inactive users.
 MeSerializer                   — read + patch view for the authenticated user.
 ChangePasswordSerializer        — change password (requires old password).
 PasswordResetRequestSerializer  — request a forgot-password email.
@@ -100,16 +100,13 @@ class CustomTokenRefreshSerializer(TokenRefreshSerializer):
     """
     Refuse a new token pair when the user account is inactive.
 
-    Reads the refresh token from the httpOnly cookie when the JSON body
-    does not include it.
+    Refresh is read from the httpOnly cookie only — never from the JSON body.
     """
 
-    refresh = serializers.CharField(required=False)
+    refresh = serializers.CharField(required=False, write_only=True)
 
     def validate(self, attrs):
-        token = attrs.get("refresh") or self.context["request"].COOKIES.get(
-            settings.REFRESH_TOKEN_COOKIE_NAME
-        )
+        token = self.context["request"].COOKIES.get(settings.REFRESH_TOKEN_COOKIE_NAME)
         if not token:
             raise InvalidToken("Refresh cookie is missing.")
         attrs["refresh"] = token

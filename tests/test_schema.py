@@ -83,6 +83,9 @@ def test_login_schema_documents_success_and_errors():
     responses = schema["paths"]["/api/auth/login/"]["post"]["responses"]
     for code in ("200", "400", "401", "429"):
         assert code in responses, f"login missing response {code}"
+    refresh = schema["paths"]["/api/auth/token/refresh/"]["post"]["responses"]
+    for code in ("200", "401", "429"):
+        assert code in refresh, f"refresh missing response {code}"
 
 
 @pytest.mark.django_db

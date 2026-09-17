@@ -71,7 +71,8 @@ User = get_user_model()
 
 
 class AuthRateThrottle(AnonRateThrottle):
-    rate = "10/min"
+    """Auth endpoints: 10/min in production, 100/min in development."""
+
     scope = "auth"
 
 
@@ -157,6 +158,7 @@ class MeView(generics.RetrieveUpdateAPIView):
             "Logged out",
             {"detail": "Successfully logged out."},
         ),
+        **error_responses(429),
     },
 )
 class LogoutView(generics.GenericAPIView):
@@ -164,6 +166,7 @@ class LogoutView(generics.GenericAPIView):
 
     permission_classes = [permissions.AllowAny]
     parser_classes = [JSONParser]
+    throttle_classes = [AuthRateThrottle]
 
     def post(self, request, *args, **kwargs):
         refresh_token = request.COOKIES.get(settings.REFRESH_TOKEN_COOKIE_NAME)
@@ -364,6 +367,7 @@ class PasswordResetConfirmView(generics.GenericAPIView):
         user = serializer.validated_data["user"]
         user.set_password(serializer.validated_data["new_password"])
         user.save()
+        blacklist_user_refresh_tokens(user)
         logger.info("Password reset completed for user: %s", user.email)
         return Response({"detail": "Password has been reset successfully."})
 
@@ -524,6 +528,8 @@ class PasswordSetView(generics.GenericAPIView):
 class LoginView(TokenObtainPairView):
     """Email + password → access JSON + httpOnly refresh cookie."""
 
+    throttle_classes = [AuthRateThrottle]
+
     def finalize_response(self, request, response, *args, **kwargs):
         response = super().finalize_response(request, response, *args, **kwargs)
         return attach_rotated_refresh_cookie(response)
@@ -573,6 +579,7 @@ class LoginView(TokenObtainPairView):
                 ),
             ],
         ),
+        **error_responses(429),
     },
 )
 class TokenRefreshView(SimpleJWTTokenRefreshView):
@@ -580,6 +587,7 @@ class TokenRefreshView(SimpleJWTTokenRefreshView):
 
     serializer_class = CustomTokenRefreshSerializer
     parser_classes = [JSONParser]
+    throttle_classes = [AuthRateThrottle]
 
     def finalize_response(self, request, response, *args, **kwargs):
         response = super().finalize_response(request, response, *args, **kwargs)

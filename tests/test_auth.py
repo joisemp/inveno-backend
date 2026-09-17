@@ -17,9 +17,20 @@ ME_URL = "/api/auth/me/"
 LOGOUT_URL = "/api/auth/logout/"
 CHANGE_PASSWORD_URL = "/api/auth/password/change/"
 PASSWORD_RESET_URL = "/api/auth/password/reset/"
+PASSWORD_RESET_CONFIRM_URL = "/api/auth/password/reset/confirm/"
 REGISTER_URL = "/api/auth/register/"  # should be gone (404 / 405)
 
 REFRESH_COOKIE = settings.REFRESH_TOKEN_COOKIE_NAME
+
+
+@pytest.fixture(autouse=True)
+def _clear_auth_throttle_cache():
+    """Auth throttles share Redis; isolate tests from leftover 429 counters."""
+    from django.core.cache import cache
+
+    cache.clear()
+    yield
+    cache.clear()
 
 
 def _refresh_cookie_value(response):
@@ -166,6 +177,20 @@ class TestTokenRefresh:
         response = api_client.post(TOKEN_REFRESH_URL)
         assert response.status_code == 401
 
+    def test_refresh_ignores_json_body_without_cookie(self, api_client, test_user):
+        """A refresh JWT in the JSON body must not work; cookie is required."""
+        login = api_client.post(
+            LOGIN_URL, {"email": test_user.email, "password": "StrongPass123!"}
+        )
+        stolen = _refresh_cookie_value(login)
+        assert stolen
+        api_client.cookies.pop(REFRESH_COOKIE, None)
+        response = api_client.post(
+            TOKEN_REFRESH_URL, {"refresh": stolen}, format="json"
+        )
+        assert response.status_code == 401
+        assert "refresh" not in (response.data or {})
+
     def test_refresh_rotates_and_blacklists_old_cookie(self, api_client, test_user):
         login = api_client.post(
             LOGIN_URL, {"email": test_user.email, "password": "StrongPass123!"}
@@ -257,6 +282,34 @@ class TestPasswordReset:
         response = api_client.post(PASSWORD_RESET_URL, {"email": "ghost@example.com"})
         assert response.status_code == 200  # anti-enumeration
 
+    def test_reset_confirm_revokes_refresh_cookie(self, api_client, test_user):
+        from django.contrib.auth.tokens import default_token_generator
+        from django.utils.encoding import force_bytes
+        from django.utils.http import urlsafe_base64_encode
+
+        login = api_client.post(
+            LOGIN_URL, {"email": test_user.email, "password": "StrongPass123!"}
+        )
+        old_refresh = _refresh_cookie_value(login)
+        test_user.refresh_from_db()
+        uid = urlsafe_base64_encode(force_bytes(test_user.pk))
+        token = default_token_generator.make_token(test_user)
+
+        confirm = api_client.post(
+            PASSWORD_RESET_CONFIRM_URL,
+            {
+                "uid": uid,
+                "token": token,
+                "new_password": "ResetPass789!",
+                "new_password2": "ResetPass789!",
+            },
+        )
+        assert confirm.status_code == 200
+
+        api_client.cookies[REFRESH_COOKIE] = old_refresh
+        refresh = api_client.post(TOKEN_REFRESH_URL)
+        assert refresh.status_code == 401
+
 
 @pytest.mark.django_db
 class TestChangePassword:
@@ -301,3 +354,36 @@ class TestChangePassword:
         api_client.cookies[REFRESH_COOKIE] = old_refresh
         refresh = api_client.post(TOKEN_REFRESH_URL)
         assert refresh.status_code == 401
+
+
+@pytest.mark.django_db
+class TestAuthThrottle:
+    def test_login_throttled_after_rate_limit(self, api_client, monkeypatch):
+        from django.core.cache import cache
+
+        from apps.users.views import AuthRateThrottle
+
+        monkeypatch.setattr(AuthRateThrottle, "get_rate", lambda self: "1/min")
+        cache.clear()
+        try:
+            api_client.post(LOGIN_URL, {"email": "nobody@example.com", "password": "x"})
+            second = api_client.post(
+                LOGIN_URL, {"email": "nobody@example.com", "password": "x"}
+            )
+            assert second.status_code == 429
+        finally:
+            cache.clear()
+
+    def test_refresh_throttled_after_rate_limit(self, api_client, monkeypatch):
+        from django.core.cache import cache
+
+        from apps.users.views import AuthRateThrottle
+
+        monkeypatch.setattr(AuthRateThrottle, "get_rate", lambda self: "1/min")
+        cache.clear()
+        try:
+            api_client.post(TOKEN_REFRESH_URL)
+            second = api_client.post(TOKEN_REFRESH_URL)
+            assert second.status_code == 429
+        finally:
+            cache.clear()
