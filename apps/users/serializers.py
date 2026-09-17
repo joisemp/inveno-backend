@@ -6,13 +6,14 @@ Auth serializers
 CustomTokenObtainPairSerializer — adds user_type / org_id / org_suffix JWT
                                   claims and checks account + org is_active
                                   on login.
-CustomTokenRefreshSerializer    — rejects refresh when the user is inactive.
+CustomTokenRefreshSerializer    — cookie (or body) refresh; rejects inactive users.
 MeSerializer                   — read + patch view for the authenticated user.
 ChangePasswordSerializer        — change password (requires old password).
 PasswordResetRequestSerializer  — request a forgot-password email.
 PasswordResetConfirmSerializer  — confirm forgot-password with uid + token.
 PasswordSetupSerializer         — set password from the welcome-email link.
 """
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import default_token_generator
@@ -96,11 +97,25 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
 
 class CustomTokenRefreshSerializer(TokenRefreshSerializer):
-    """Refuse a new token pair when the user account is inactive."""
+    """
+    Refuse a new token pair when the user account is inactive.
+
+    Reads the refresh token from the httpOnly cookie when the JSON body
+    does not include it.
+    """
+
+    refresh = serializers.CharField(required=False)
 
     def validate(self, attrs):
+        token = attrs.get("refresh") or self.context["request"].COOKIES.get(
+            settings.REFRESH_TOKEN_COOKIE_NAME
+        )
+        if not token:
+            raise InvalidToken("Refresh cookie is missing.")
+        attrs["refresh"] = token
+
         try:
-            refresh = RefreshToken(attrs["refresh"])
+            refresh = RefreshToken(token)
         except Exception:
             return super().validate(attrs)
 

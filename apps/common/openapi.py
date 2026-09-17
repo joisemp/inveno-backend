@@ -22,21 +22,10 @@ class HealthSerializer(serializers.Serializer):
     redis = serializers.CharField()
 
 
-class LogoutRequestSerializer(serializers.Serializer):
-    """POST /api/auth/logout/ body."""
-
-    refresh = serializers.CharField()
-
-
 class TokenPairSerializer(serializers.Serializer):
-    """JWT access + refresh pair returned by login and token refresh."""
+    """JWT access token returned by login and token refresh."""
 
     access = serializers.CharField()
-    refresh = serializers.CharField()
-
-
-class TokenRefreshRequestSerializer(serializers.Serializer):
-    refresh = serializers.CharField()
 
 
 class TokenVerifyRequestSerializer(serializers.Serializer):
