@@ -1,169 +1,25 @@
 # Frontend guide (React + Vite + TypeScript)
 
 How to build the Inveno web app against this API. Per-endpoint JSON lives in
-`FRONTEND_API.md`. The **Current endpoints** table below is generated from the
-live OpenAPI schema and updates automatically when the API changes.
+[`FRONTEND_API.md`](../../FRONTEND_API.md). The **Current endpoints** table below
+is generated from the live OpenAPI schema and updates automatically when the API
+changes.
 
 Log in at `/admin/` first — this page is staff-only, same as Swagger.
 
 ---
 
-## 1. Roles
+## 1. Stack and environment
 
-There is **no public register**. Super admins create organisations and the first
-central admin in Django Admin. Central admins then add further org users via
-`POST /api/orgs/members/`.
+**Stack:** React 18+, Vite, TypeScript, React Router, Axios.
 
-| `user_type` | Staff? | `org` | What they can do in the UI |
-|---|---|---|---|
-| `super_admin` | yes | always `null` | Platform admin; no org-scoped screens |
-| `central_admin` | no | required | Org owner: members, spaces, incharge assignment, vendors, catalog, full purchase override |
-| `operation_incharge` | no | required | Purchase flow (create PRs with optional space; RFQ/quotes/PO/QC/invoice/export). Cannot manage members or spaces |
-| `warehouse_manager` | no | required | Vendors, item catalog writes, warehouse receipts. Cannot manage members or run RFQ/PO |
-| `space_incharge` | no | required | GET their assigned space; raise/edit PRs for that space only. No vendors or catalog |
-
-Use `GET /api/auth/me/` as the source of truth for routing. JWT claims are a
-hint for the first paint only. For space incharges, `profile.space` is
-`{ slug, name }` when assigned, otherwise `null` (they cannot submit PRs yet).
-
----
-
-## 2. Onboarding
-
-1. Super admin creates the org + first central admin in `/admin/`.
-2. A central admin may add more users (`central_admin`, `operation_incharge`,
-   `warehouse_manager`, or `space_incharge`) with `POST /api/orgs/members/`.
-   Space is **not** sent on create. After adding a `space_incharge`, assign them
-   with `POST /api/orgs/spaces/{slug}/incharges/`.
-3. The API emails a Get Started link: `{FRONTEND_URL}/get-started?uid=...&token=...`
-   (`FRONTEND_URL` defaults to `http://localhost:5173`).
-4. The Get Started page calls `POST /api/auth/password/set/` (public, 7-day
-   one-time token).
-5. Then `POST /api/auth/login/` with email + password.
-6. Store the JWT pair and call `GET /api/auth/me/`.
-
-The password-set token is **not** the same as the forgot-password token.
-
----
-
-## 3. JWT session
-
-| Token | Lifetime | Where it goes |
-|---|---|---|
-| Access | 15 minutes | `Authorization: Bearer <access>` |
-| Refresh | 7 days | body of refresh/logout only — never in the header |
-
-Refresh **rotates**: each `POST /api/auth/token/refresh/` returns a new
-`access` **and** a new `refresh`. Persist the new refresh. The old one is
-blacklisted.
-
-Recommended storage: memory for access, `httpOnly` cookie for refresh if you
-control a BFF; for a pure SPA, `sessionStorage` is acceptable. Do not put
-tokens in `localStorage` if you can avoid it (XSS).
-
-On `POST /api/auth/logout/` send the refresh token in the JSON body **and** the
-access token in the Authorization header, then clear local state.
-
----
-
-## 4. JWT claims vs `/me`
-
-Access-token payload (after the standard `exp` / `token_type` fields):
-
-```json
-{
-  "user_id": "uuid",
-  "user_type": "central_admin",
-  "org_id": "uuid-of-org",
-  "org_suffix": "acme_west"
-}
+```bash
+npm create vite@latest inveno-web -- --template react-ts
+cd inveno-web
+npm i axios react-router-dom
 ```
 
-For `super_admin`, `org_id` and `org_suffix` are `null`.
-
-Still call `GET /api/auth/me/` after login. `/me` includes names, phone,
-`profile.space`, and `org.is_active`, which claims do not.
-
----
-
-## 5. Authorization
-
-| Surface | Auth |
-|---|---|
-| `GET /api/health/` | Public |
-| `POST /api/auth/login/`, refresh, verify, password set/reset | Public (throttled 10/min) |
-| Most `/api/auth/*` | `IsAuthenticated` (Bearer) |
-| `GET/POST /api/orgs/members/`, resend welcome, suspend, unsuspend | Central admin of an active org |
-| `POST /api/orgs/spaces/`, PATCH/suspend, assign incharges | Central admin of an active org |
-| `GET /api/orgs/spaces/` | Central admin, operation incharge, or assigned space incharge |
-| `/api/orgs/vendors/` (list/add/get/patch/suspend) | Central admin, operation incharge, or warehouse manager |
-| `GET /api/orgs/items/` | Central admin, operation incharge, or warehouse manager |
-| `POST/PATCH /api/orgs/items/` | Central admin or warehouse manager |
-| `GET/POST /api/orgs/purchase-requests/` | Space incharge (assigned space), operation incharge, or central admin |
-| RFQ / PO / QC / invoice / trail / verify | Operation incharge or central admin |
-| `/api/orgs/warehouse/receipts/` | Warehouse manager or central admin |
-| `/api/docs/`, `/api/docs/frontend/`, `/api/redoc/`, `/api/schema/` | Staff session or staff JWT |
-
-If the org is suspended, login returns `400`:
-
-```json
-{
-  "non_field_errors": [
-    "Your organisation has been suspended. Please contact your administrator."
-  ]
-}
-```
-
-If the **account** is suspended, login returns `400`:
-
-```json
-{
-  "non_field_errors": [
-    "Your account has been suspended. Please contact your administrator."
-  ]
-}
-```
-
-Gate org UI with any org-assignable `user_type` and `org?.is_active`.
-Gate **member management and space assignment** with
-`profile.user_type === "central_admin"`.
-Vendor screens: `central_admin`, `operation_incharge`, or `warehouse_manager`
-— **not** `space_incharge`.
-Space incharge PR screens: only when `profile.space` is set.
-Warehouse inbound: `warehouse_manager` or `central_admin`.
-A `403` from any authenticated route means the user is logged in but not allowed
-— do not try to refresh the token for that.
-
----
-
-## 6. Forgot password vs set-password
-
-| | Set password (welcome email) | Forgot password |
-|---|---|---|
-| Endpoint | `POST /api/auth/password/set/` | `POST /api/auth/password/reset/` then `.../reset/confirm/` |
-| Token TTL | 7 days | 1 hour |
-| One-time | Yes (invalid once a usable password exists) | Yes after confirm |
-
-Do not reuse Get Started tokens on the forgot-password page.
-
----
-
-## 7. Frontend checklist
-
-1. Axios (or fetch) instance with `baseURL = import.meta.env.VITE_API_URL`.
-2. Attach `Authorization: Bearer` on every request except the public auth ones.
-3. On `401`, try **one** refresh; queue concurrent 401s; if refresh fails, logout.
-4. Show a banner on `403` and `429` (`Retry-After` header, seconds).
-5. Browser talks to `http://localhost:8000`, **never** `http://api:8000` (that
-   hostname only exists on the Docker network).
-
----
-
-## 8. React + Vite + TypeScript
-
-### Env
-
-`.env` (Vite only exposes `VITE_*`):
+`.env`:
 
 ```env
 VITE_API_URL=http://localhost:8000
@@ -183,9 +39,109 @@ interface ImportMeta {
 }
 ```
 
-Install the HTTP client: `npm i axios`.
+**Important**
 
-### Types
+- The browser must call `http://localhost:8000`, **never** `http://api:8000` (Docker-only hostname).
+- All auth calls need **`withCredentials: true`** so the httpOnly refresh cookie is sent.
+- Configure `CORS_ALLOWED_ORIGINS` on the API to include your frontend URL.
+
+Suggested layout:
+
+```
+src/
+  lib/types.ts
+  lib/auth.ts
+  lib/errors.ts
+  lib/api.ts
+  auth/AuthProvider.tsx
+  auth/RequireAuth.tsx
+  pages/LoginPage.tsx
+  pages/GetStartedPage.tsx
+  ...
+```
+
+---
+
+## 2. Roles and navigation
+
+There is **no public register**. Super admins create organisations and the first
+central admin in Django Admin. Central admins add org users via
+`POST /api/orgs/members/`.
+
+| `user_type` | Staff? | `org` | Typical UI |
+|---|---|---|---|
+| `super_admin` | yes | always `null` | Platform admin only |
+| `central_admin` | no | required | Full org: members, spaces, vendors, catalog, purchases |
+| `operation_incharge` | no | required | Purchase flow; no member/space admin |
+| `warehouse_manager` | no | required | Vendors, catalog writes, warehouse receipts |
+| `space_incharge` | no | required | PRs for assigned space only |
+
+Use **`GET /api/auth/me/`** as the source of truth for routing. JWT claims are a
+hint for first paint only. For space incharges, `profile.space` is
+`{ slug, name }` when assigned, otherwise `null`.
+
+**Nav by role**
+
+| Screen | Roles |
+|---|---|
+| Members / spaces admin | `central_admin` |
+| Vendors / items | `central_admin`, `operation_incharge`, `warehouse_manager` |
+| Purchase requests | `space_incharge` (with space), `operation_incharge`, `central_admin` |
+| RFQ / PO / QC / invoice | `operation_incharge`, `central_admin` |
+| Warehouse receipts | `warehouse_manager`, `central_admin` |
+
+Hide vendor and catalog screens from `space_incharge`.
+
+---
+
+## 3. Onboarding and password flows
+
+1. Super admin creates org + first central admin in `/admin/`.
+2. Central admin adds users with `POST /api/orgs/members/`.
+3. Welcome email: `{FRONTEND_URL}/get-started?uid=...&token=...`
+4. Get Started page → `POST /api/auth/password/set/` (7-day one-time token).
+5. Login → `POST /api/auth/login/` with `withCredentials: true`.
+6. Store **access in memory**; refresh is set as httpOnly cookie automatically.
+
+| | Set password (welcome) | Forgot password |
+|---|---|---|
+| Endpoint | `POST /api/auth/password/set/` | `POST /api/auth/password/reset/` then `.../confirm/` |
+| TTL | 7 days | 1 hour |
+| One-time | Yes | Yes after confirm |
+
+Do not reuse Get Started tokens on the forgot-password page.
+
+---
+
+## 4. JWT session (httpOnly refresh)
+
+| Token | Lifetime | Storage |
+|---|---|---|
+| Access | 15 minutes | In-memory → `Authorization: Bearer <access>` |
+| Refresh | 7 days | httpOnly cookie `inveno_refresh`, `Path=/api/auth/` |
+
+- Login returns `{ "access": "..." }` only; refresh arrives via `Set-Cookie`.
+- Refresh rotates: `POST /api/auth/token/refresh/` with credentials, **empty body**.
+- Logout: `POST /api/auth/logout/` with credentials; cookie cleared.
+- Password change revokes all refresh tokens and clears the cookie.
+- Never store tokens in `localStorage` or `sessionStorage`.
+
+```mermaid
+sequenceDiagram
+    participant SPA
+    participant API
+    SPA->>API: POST /api/auth/login/
+    API-->>SPA: JSON access plus Set-Cookie refresh
+    SPA->>API: GET /api/auth/me/ Bearer access
+    SPA->>API: POST /api/auth/token/refresh/ cookie
+    API-->>SPA: JSON access plus rotated cookie
+```
+
+---
+
+## 5. TypeScript types
+
+`src/lib/types.ts`:
 
 ```ts
 export type UserType =
@@ -194,29 +150,15 @@ export type UserType =
   | "operation_incharge"
   | "warehouse_manager"
   | "space_incharge";
+
 export type OrgAssignableUserType =
   | "central_admin"
   | "operation_incharge"
   | "warehouse_manager"
   | "space_incharge";
 
-export const ORG_USER_TYPES: UserType[] = [
-  "central_admin",
-  "operation_incharge",
-  "warehouse_manager",
-  "space_incharge",
-];
-
-export type TokenPair = {
+export type AccessTokenResponse = {
   access: string;
-  refresh: string;
-};
-
-export type JwtClaims = {
-  user_id: string;
-  user_type: UserType | null;
-  org_id: string | null;
-  org_suffix: string | null;
 };
 
 export type MeResponse = {
@@ -242,6 +184,13 @@ export type MeResponse = {
   } | null;
 };
 
+export type Paginated<T> = {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
+};
+
 export type OrgMember = {
   slug: string;
   email: string;
@@ -256,11 +205,13 @@ export type OrgMember = {
   space: { slug: string; name: string } | null;
 };
 
-export type Paginated<T> = {
-  count: number;
-  next: string | null;
-  previous: string | null;
-  results: T[];
+export type Space = {
+  slug: string;
+  name: string;
+  location: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
 };
 
 export type Vendor = {
@@ -287,15 +238,6 @@ export type VendorWrite = {
   website?: string;
 };
 
-export type Space = {
-  slug: string;
-  name: string;
-  location: string;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-};
-
 export type Item = {
   slug: string;
   name: string;
@@ -305,6 +247,12 @@ export type Item = {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+};
+
+export type ItemWrite = {
+  name: string;
+  sku: string;
+  unit: string;
 };
 
 export type PurchaseRequestLine = {
@@ -333,57 +281,205 @@ export type PurchaseRequestWrite = {
   title: string;
   notes?: string;
   space?: string | null;
-  lines: {
-    description: string;
-    quantity: string;
-    unit: string;
-    item?: string;
-  }[];
+  lines: { description: string; quantity: string; unit: string; item?: string }[];
+};
+
+export type RFQVendor = {
+  vendor: string;
+  status: string;
+  reject_reason: string;
+};
+
+export type RFQLineQuote = {
+  vendor: string;
+  unit_price: string;
+};
+
+export type RFQLine = {
+  slug: string;
+  description: string;
+  quantity: string;
+  unit: string;
+  awarded_vendor: string | null;
+  quotes: RFQLineQuote[];
+};
+
+export type QuoteRequest = {
+  slug: string;
+  purchase_request: string;
+  status: string;
+  notes: string;
+  vendors: RFQVendor[];
+  lines: RFQLine[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type PurchaseOrderLine = {
+  slug: string;
+  description: string;
+  quantity: string;
+  unit: string;
+  unit_price: string;
+};
+
+export type PurchaseOrder = {
+  slug: string;
+  vendor: string;
+  purchase_request: string;
+  status: string;
+  is_new_order: boolean;
+  lines: PurchaseOrderLine[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type PurchaseInvoice = {
+  slug: string;
+  notes: string;
+  document_urls: string[];
+  status: string;
+  created_at: string;
+};
+
+export type WarehouseReceiptLine = {
+  slug: string;
+  description: string;
+  quantity: string;
+  unit: string;
+  item: string | null;
+};
+
+export type WarehouseReceipt = {
+  slug: string;
+  purchase_order: string;
+  status: string;
+  lines: WarehouseReceiptLine[];
+  created_at: string;
+  completed_at: string | null;
+};
+
+export type ProcessEvent = {
+  slug: string;
+  action: string;
+  actor_slug: string;
+  actor_user_type: string;
+  resource_type: string;
+  resource_slug: string;
+  content_hash: string;
+  signature: string;
+  prev_hash: string;
+  created_at: string;
 };
 ```
 
-### `src/lib/api.ts`
+---
 
-Bearer interceptor, queued refresh-on-401, logout when refresh fails.
+## 6. Access token module
+
+`src/lib/auth.ts` — memory only:
+
+```ts
+let accessToken: string | null = null;
+
+export function getAccessToken(): string | null {
+  return accessToken;
+}
+
+export function setAccessToken(token: string | null): void {
+  accessToken = token;
+}
+
+export function clearAccessToken(): void {
+  accessToken = null;
+}
+```
+
+---
+
+## 7. Error helper
+
+`src/lib/errors.ts`:
+
+```ts
+import type { AxiosError } from "axios";
+
+export function formatApiError(error: unknown): string {
+  const ax = error as AxiosError<Record<string, unknown>>;
+  const data = ax.response?.data;
+  if (!data) return ax.message || "Request failed";
+
+  if (typeof data.detail === "string") return data.detail;
+
+  if (Array.isArray(data.non_field_errors)) {
+    return (data.non_field_errors as string[]).join(" ");
+  }
+
+  const parts: string[] = [];
+  for (const [field, msgs] of Object.entries(data)) {
+    if (Array.isArray(msgs)) parts.push(`${field}: ${(msgs as string[]).join(", ")}`);
+  }
+  return parts.join("; ") || "Request failed";
+}
+
+export function retryAfterSeconds(error: unknown): number | null {
+  const ax = error as AxiosError;
+  const header = ax.response?.headers?.["retry-after"];
+  if (!header) return null;
+  const n = parseInt(String(header), 10);
+  return Number.isFinite(n) ? n : null;
+}
+```
+
+On **403** show a permission banner — do not attempt token refresh.
+
+---
+
+## 8. Axios client and API helpers
+
+`src/lib/api.ts` — full client covering every product endpoint:
 
 ```ts
 import axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
+import { clearAccessToken, getAccessToken, setAccessToken } from "./auth";
 import type {
+  AccessTokenResponse,
+  Item,
+  ItemWrite,
   MeResponse,
   OrgAssignableUserType,
   OrgMember,
   Paginated,
-  TokenPair,
-  Vendor,
-  VendorWrite,
-  Space,
-  Item,
+  ProcessEvent,
+  PurchaseInvoice,
+  PurchaseOrder,
   PurchaseRequest,
   PurchaseRequestWrite,
+  QuoteRequest,
+  Space,
+  Vendor,
+  VendorWrite,
+  WarehouseReceipt,
 } from "./types";
 
-const TOKEN_KEY = "inveno.tokens";
-
-export function getTokens(): TokenPair | null {
-  const raw = sessionStorage.getItem(TOKEN_KEY);
-  return raw ? (JSON.parse(raw) as TokenPair) : null;
-}
-
-export function setTokens(tokens: TokenPair | null) {
-  if (!tokens) sessionStorage.removeItem(TOKEN_KEY);
-  else sessionStorage.setItem(TOKEN_KEY, JSON.stringify(tokens));
-}
+const baseURL = import.meta.env.VITE_API_URL;
 
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL,
+  baseURL,
+  withCredentials: true,
   headers: { "Content-Type": "application/json" },
 });
 
+const PUBLIC_AUTH_PATHS = [
+  "/api/auth/login/",
+  "/api/auth/password/set/",
+  "/api/auth/password/reset/",
+  "/api/auth/password/reset/confirm/",
+];
+
 api.interceptors.request.use((config) => {
-  const access = getTokens()?.access;
-  if (access) {
-    config.headers.Authorization = `Bearer ${access}`;
-  }
+  const access = getAccessToken();
+  if (access) config.headers.Authorization = `Bearer ${access}`;
   return config;
 });
 
@@ -394,22 +490,23 @@ api.interceptors.response.use(
   async (error: AxiosError) => {
     const original = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
     const status = error.response?.status;
+    const url = original?.url ?? "";
 
-    if (status === 401 && original && !original._retry) {
+    if (
+      status === 401 &&
+      original &&
+      !original._retry &&
+      !PUBLIC_AUTH_PATHS.some((p) => url.includes(p))
+    ) {
       original._retry = true;
-      const refresh = getTokens()?.refresh;
-      if (!refresh) {
-        setTokens(null);
-        return Promise.reject(error);
-      }
       try {
         if (!refreshing) {
           refreshing = axios
-            .post<TokenPair>(`${import.meta.env.VITE_API_URL}/api/auth/token/refresh/`, {
-              refresh,
+            .post<AccessTokenResponse>(`${baseURL}/api/auth/token/refresh/`, {}, {
+              withCredentials: true,
             })
             .then((r) => {
-              setTokens(r.data);
+              setAccessToken(r.data.access);
               return r.data.access;
             })
             .finally(() => {
@@ -420,7 +517,7 @@ api.interceptors.response.use(
         original.headers.Authorization = `Bearer ${access}`;
         return api(original);
       } catch {
-        setTokens(null);
+        clearAccessToken();
         window.location.assign("/login");
         return Promise.reject(error);
       }
@@ -429,9 +526,52 @@ api.interceptors.response.use(
   },
 );
 
+// ── Auth ─────────────────────────────────────────────────────────────────────
+
 export async function login(email: string, password: string) {
-  const { data } = await api.post<TokenPair>("/api/auth/login/", { email, password });
-  setTokens(data);
+  const { data } = await api.post<AccessTokenResponse>("/api/auth/login/", {
+    email,
+    password,
+  });
+  setAccessToken(data.access);
+  return data;
+}
+
+export async function silentRefresh() {
+  const { data } = await api.post<AccessTokenResponse>("/api/auth/token/refresh/");
+  setAccessToken(data.access);
+  return data;
+}
+
+export async function logout() {
+  try {
+    await api.post("/api/auth/logout/");
+  } finally {
+    clearAccessToken();
+  }
+}
+
+export async function getMe() {
+  const { data } = await api.get<MeResponse>("/api/auth/me/");
+  return data;
+}
+
+export async function patchMe(body: {
+  first_name?: string;
+  last_name?: string;
+  phone?: string;
+}) {
+  const { data } = await api.patch<MeResponse>("/api/auth/me/", body);
+  return data;
+}
+
+export async function changePassword(body: {
+  old_password: string;
+  new_password: string;
+  new_password2: string;
+}) {
+  const { data } = await api.post<{ detail: string }>("/api/auth/password/change/", body);
+  clearAccessToken();
   return data;
 }
 
@@ -445,26 +585,25 @@ export async function setPassword(body: {
   return data;
 }
 
-export async function getMe() {
-  const { data } = await api.get<MeResponse>("/api/auth/me/");
-  return data;
-}
-
-export async function logout() {
-  const refresh = getTokens()?.refresh;
-  try {
-    if (refresh) await api.post("/api/auth/logout/", { refresh });
-  } finally {
-    setTokens(null);
-  }
-}
-
 export async function forgotPassword(email: string) {
-  const { data } = await api.post<{ detail: string }>("/api/auth/password/reset/", {
-    email,
-  });
+  const { data } = await api.post<{ detail: string }>("/api/auth/password/reset/", { email });
   return data;
 }
+
+export async function resetPasswordConfirm(body: {
+  uid: string;
+  token: string;
+  new_password: string;
+  new_password2: string;
+}) {
+  const { data } = await api.post<{ detail: string }>(
+    "/api/auth/password/reset/confirm/",
+    body,
+  );
+  return data;
+}
+
+// ── Members ──────────────────────────────────────────────────────────────────
 
 export async function listOrgMembers(status?: "active" | "suspended") {
   const { data } = await api.get<Paginated<OrgMember>>("/api/orgs/members/", {
@@ -505,6 +644,62 @@ export async function unsuspendMember(slug: string) {
   return data;
 }
 
+// ── Spaces ───────────────────────────────────────────────────────────────────
+
+export async function listSpaces(status?: "active" | "suspended") {
+  const { data } = await api.get<Paginated<Space>>("/api/orgs/spaces/", {
+    params: status ? { status } : undefined,
+  });
+  return data;
+}
+
+export async function createSpace(body: { name: string; location?: string }) {
+  const { data } = await api.post<Space>("/api/orgs/spaces/", body);
+  return data;
+}
+
+export async function getSpace(slug: string) {
+  const { data } = await api.get<Space>(`/api/orgs/spaces/${slug}/`);
+  return data;
+}
+
+export async function updateSpace(slug: string, body: Partial<{ name: string; location: string }>) {
+  const { data } = await api.patch<Space>(`/api/orgs/spaces/${slug}/`, body);
+  return data;
+}
+
+export async function suspendSpace(slug: string) {
+  const { data } = await api.post<{ detail: string }>(`/api/orgs/spaces/${slug}/suspend/`);
+  return data;
+}
+
+export async function unsuspendSpace(slug: string) {
+  const { data } = await api.post<{ detail: string }>(`/api/orgs/spaces/${slug}/unsuspend/`);
+  return data;
+}
+
+export async function listSpaceIncharges(spaceSlug: string) {
+  const { data } = await api.get<OrgMember[]>(`/api/orgs/spaces/${spaceSlug}/incharges/`);
+  return data;
+}
+
+export async function assignSpaceIncharge(spaceSlug: string, member: string) {
+  const { data } = await api.post<OrgMember>(
+    `/api/orgs/spaces/${spaceSlug}/incharges/`,
+    { member },
+  );
+  return data;
+}
+
+export async function unassignSpaceIncharge(spaceSlug: string, memberSlug: string) {
+  const { data } = await api.post<{ detail: string }>(
+    `/api/orgs/spaces/${spaceSlug}/incharges/${memberSlug}/unassign/`,
+  );
+  return data;
+}
+
+// ── Vendors ──────────────────────────────────────────────────────────────────
+
 export async function listVendors(status?: "active" | "suspended") {
   const { data } = await api.get<Paginated<Vendor>>("/api/orgs/vendors/", {
     params: status ? { status } : undefined,
@@ -528,38 +723,16 @@ export async function updateVendor(slug: string, body: Partial<VendorWrite>) {
 }
 
 export async function suspendVendor(slug: string) {
-  const { data } = await api.post<{ detail: string }>(
-    `/api/orgs/vendors/${slug}/suspend/`,
-  );
+  const { data } = await api.post<{ detail: string }>(`/api/orgs/vendors/${slug}/suspend/`);
   return data;
 }
 
 export async function unsuspendVendor(slug: string) {
-  const { data } = await api.post<{ detail: string }>(
-    `/api/orgs/vendors/${slug}/unsuspend/`,
-  );
+  const { data } = await api.post<{ detail: string }>(`/api/orgs/vendors/${slug}/unsuspend/`);
   return data;
 }
 
-export async function listSpaces(status?: "active" | "suspended") {
-  const { data } = await api.get<Paginated<Space>>("/api/orgs/spaces/", {
-    params: status ? { status } : undefined,
-  });
-  return data;
-}
-
-export async function createSpace(body: { name: string; location?: string }) {
-  const { data } = await api.post<Space>("/api/orgs/spaces/", body);
-  return data;
-}
-
-export async function assignSpaceIncharge(spaceSlug: string, member: string) {
-  const { data } = await api.post<OrgMember>(
-    `/api/orgs/spaces/${spaceSlug}/incharges/`,
-    { member },
-  );
-  return data;
-}
+// ── Items ────────────────────────────────────────────────────────────────────
 
 export async function listItems(status?: "active" | "suspended") {
   const { data } = await api.get<Paginated<Item>>("/api/orgs/items/", {
@@ -568,16 +741,53 @@ export async function listItems(status?: "active" | "suspended") {
   return data;
 }
 
-export async function listPurchaseRequests() {
-  const { data } = await api.get<Paginated<PurchaseRequest>>(
-    "/api/orgs/purchase-requests/",
-  );
+export async function createItem(body: ItemWrite) {
+  const { data } = await api.post<Item>("/api/orgs/items/", body);
+  return data;
+}
+
+export async function getItem(slug: string) {
+  const { data } = await api.get<Item>(`/api/orgs/items/${slug}/`);
+  return data;
+}
+
+export async function updateItem(slug: string, body: Partial<ItemWrite>) {
+  const { data } = await api.patch<Item>(`/api/orgs/items/${slug}/`, body);
+  return data;
+}
+
+export async function suspendItem(slug: string) {
+  const { data } = await api.post<{ detail: string }>(`/api/orgs/items/${slug}/suspend/`);
+  return data;
+}
+
+export async function unsuspendItem(slug: string) {
+  const { data } = await api.post<{ detail: string }>(`/api/orgs/items/${slug}/unsuspend/`);
+  return data;
+}
+
+// ── Purchase requests ────────────────────────────────────────────────────────
+
+export async function listPurchaseRequests(params?: { page?: number }) {
+  const { data } = await api.get<Paginated<PurchaseRequest>>("/api/orgs/purchase-requests/", {
+    params,
+  });
   return data;
 }
 
 export async function createPurchaseRequest(body: PurchaseRequestWrite) {
-  const { data } = await api.post<PurchaseRequest>(
-    "/api/orgs/purchase-requests/",
+  const { data } = await api.post<PurchaseRequest>("/api/orgs/purchase-requests/", body);
+  return data;
+}
+
+export async function getPurchaseRequest(slug: string) {
+  const { data } = await api.get<PurchaseRequest>(`/api/orgs/purchase-requests/${slug}/`);
+  return data;
+}
+
+export async function updatePurchaseRequest(slug: string, body: Partial<PurchaseRequestWrite>) {
+  const { data } = await api.patch<PurchaseRequest>(
+    `/api/orgs/purchase-requests/${slug}/`,
     body,
   );
   return data;
@@ -590,14 +800,80 @@ export async function submitPurchaseRequest(slug: string) {
   return data;
 }
 
+export async function approvePurchaseRequest(slug: string) {
+  const { data } = await api.post<PurchaseRequest>(
+    `/api/orgs/purchase-requests/${slug}/approve/`,
+  );
+  return data;
+}
+
+export async function declinePurchaseRequest(slug: string, reason: string) {
+  const { data } = await api.post<PurchaseRequest>(
+    `/api/orgs/purchase-requests/${slug}/decline/`,
+    { reason },
+  );
+  return data;
+}
+
+export async function requestPurchaseRevision(slug: string, reason: string) {
+  const { data } = await api.post<PurchaseRequest>(
+    `/api/orgs/purchase-requests/${slug}/request-revision/`,
+    { reason },
+  );
+  return data;
+}
+
+export async function getPurchaseRequestTrail(slug: string) {
+  const { data } = await api.get<ProcessEvent[]>(
+    `/api/orgs/purchase-requests/${slug}/trail/`,
+  );
+  return data;
+}
+
+// ── RFQs ─────────────────────────────────────────────────────────────────────
+
+export async function listRfqs(params?: { page?: number }) {
+  const { data } = await api.get<Paginated<QuoteRequest>>("/api/orgs/rfqs/", { params });
+  return data;
+}
+
+export async function createRfq(body: { purchase_request: string; vendor_slugs: string[] }) {
+  const { data } = await api.post<QuoteRequest>("/api/orgs/rfqs/", body);
+  return data;
+}
+
+export async function getRfq(slug: string) {
+  const { data } = await api.get<QuoteRequest>(`/api/orgs/rfqs/${slug}/`);
+  return data;
+}
+
+export async function addRfqVendor(rfqSlug: string, vendor: string) {
+  const { data } = await api.post(`/api/orgs/rfqs/${rfqSlug}/vendors/`, { vendor });
+  return data;
+}
+
+export async function rejectRfqVendor(rfqSlug: string, vendorSlug: string, reason: string) {
+  const { data } = await api.post(
+    `/api/orgs/rfqs/${rfqSlug}/vendors/${vendorSlug}/reject/`,
+    { reason },
+  );
+  return data;
+}
+
 export async function recordQuote(
   rfqSlug: string,
   body: {
     vendor: string;
+    notes?: string;
     lines: { line: string; unit_price: string }[];
   },
 ) {
   const { data } = await api.post(`/api/orgs/rfqs/${rfqSlug}/quotes/`, body);
+  return data;
+}
+
+export async function requestRfqRevision(rfqSlug: string, reason: string) {
+  const { data } = await api.post(`/api/orgs/rfqs/${rfqSlug}/request-revision/`, { reason });
   return data;
 }
 
@@ -608,6 +884,71 @@ export async function selectQuoteLines(
   const { data } = await api.post(`/api/orgs/rfqs/${rfqSlug}/select-lines/`, {
     selections,
   });
+  return data;
+}
+
+export async function createPurchaseOrderFromRfq(
+  rfqSlug: string,
+  body: { vendor: string; create_purchase_order?: boolean },
+) {
+  const { data } = await api.post<PurchaseOrder>(
+    `/api/orgs/rfqs/${rfqSlug}/purchase-orders/`,
+    body,
+  );
+  return data;
+}
+
+// ── Purchase orders ──────────────────────────────────────────────────────────
+
+export async function listPurchaseOrders(params?: { page?: number }) {
+  const { data } = await api.get<Paginated<PurchaseOrder>>("/api/orgs/purchase-orders/", {
+    params,
+  });
+  return data;
+}
+
+export async function getPurchaseOrder(slug: string) {
+  const { data } = await api.get<PurchaseOrder>(`/api/orgs/purchase-orders/${slug}/`);
+  return data;
+}
+
+export async function submitQualityCheck(
+  poSlug: string,
+  body: {
+    passed: boolean;
+    reason?: string;
+    next?: "" | "return" | "reorder_same" | "choose_vendors";
+  },
+) {
+  const { data } = await api.post(`/api/orgs/purchase-orders/${poSlug}/quality-check/`, body);
+  return data;
+}
+
+export async function submitInvoice(
+  poSlug: string,
+  body: { notes?: string; document_urls?: string[] },
+) {
+  const { data } = await api.post<PurchaseInvoice>(
+    `/api/orgs/purchase-orders/${poSlug}/invoice/`,
+    body,
+  );
+  return data;
+}
+
+// ── Warehouse receipts ───────────────────────────────────────────────────────
+
+export async function listWarehouseReceipts(params?: { page?: number }) {
+  const { data } = await api.get<Paginated<WarehouseReceipt>>(
+    "/api/orgs/warehouse/receipts/",
+    { params },
+  );
+  return data;
+}
+
+export async function getWarehouseReceipt(slug: string) {
+  const { data } = await api.get<WarehouseReceipt>(
+    `/api/orgs/warehouse/receipts/${slug}/`,
+  );
   return data;
 }
 
@@ -622,12 +963,14 @@ export async function completeWarehouseReceipt(
     unit?: string;
   }[],
 ) {
-  const { data } = await api.post(
+  const { data } = await api.post<WarehouseReceipt>(
     `/api/orgs/warehouse/receipts/${slug}/complete/`,
     { lines },
   );
   return data;
 }
+
+// ── Process trail verify ─────────────────────────────────────────────────────
 
 export async function verifyProcessEvent(content_hash: string, signature: string) {
   const { data } = await api.post<{ valid: boolean }>(
@@ -637,26 +980,144 @@ export async function verifyProcessEvent(content_hash: string, signature: string
   return data;
 }
 
-export function exportUrl(
+// ── Authenticated exports (Bearer required; cookie not sent on these paths) ──
+
+export async function downloadExport(
+  path: string,
+  filename: string,
+): Promise<void> {
+  const { data } = await api.get(path, { responseType: "blob" });
+  const url = URL.createObjectURL(data);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export function exportPath(
   kind: "purchase-requests" | "rfqs" | "purchase-orders" | "warehouse/receipts",
   slug: string,
   format: "pdf" | "xlsx",
-  extra = "",
+  invoice = false,
 ) {
-  return `/api/orgs/${kind}/${slug}/${extra}export/?format=${format}`;
+  if (invoice) {
+    return `/api/orgs/purchase-orders/${slug}/invoice/export/?format=${format}`;
+  }
+  return `/api/orgs/${kind}/${slug}/export/?format=${format}`;
 }
 ```
 
-Skip the interceptor refresh for `/api/auth/token/refresh/` itself (the snippet
-uses a bare `axios.post` for that reason).
+Skip the interceptor refresh for `/api/auth/token/refresh/` itself — the snippet
+uses a bare `axios.post` for that reason.
 
-### Route guard
+---
+
+## 9. AuthProvider (bootstrap)
+
+`src/auth/AuthProvider.tsx`:
+
+```tsx
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
+import { getMe, login as apiLogin, logout as apiLogout, silentRefresh } from "../lib/api";
+import { clearAccessToken, getAccessToken } from "../lib/auth";
+import type { MeResponse } from "../lib/types";
+
+type AuthContextValue = {
+  me: MeResponse | null;
+  ready: boolean;
+  login: (email: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
+  refreshMe: () => Promise<void>;
+};
+
+const AuthContext = createContext<AuthContextValue | null>(null);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [me, setMe] = useState<MeResponse | null>(null);
+  const [ready, setReady] = useState(false);
+
+  const refreshMe = useCallback(async () => {
+    const profile = await getMe();
+    setMe(profile);
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        if (!getAccessToken()) await silentRefresh();
+        await refreshMe();
+      } catch {
+        clearAccessToken();
+        setMe(null);
+      } finally {
+        setReady(true);
+      }
+    })();
+  }, [refreshMe]);
+
+  const login = useCallback(
+    async (email: string, password: string) => {
+      await apiLogin(email, password);
+      await refreshMe();
+    },
+    [refreshMe],
+  );
+
+  const logout = useCallback(async () => {
+    await apiLogout();
+    setMe(null);
+  }, []);
+
+  const value = useMemo(
+    () => ({ me, ready, login, logout, refreshMe }),
+    [me, ready, login, logout, refreshMe],
+  );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+export function useAuth() {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("useAuth must be used within AuthProvider");
+  return ctx;
+}
+```
+
+Wrap your app:
+
+```tsx
+// main.tsx
+import { BrowserRouter } from "react-router-dom";
+import { AuthProvider } from "./auth/AuthProvider";
+
+createRoot(document.getElementById("root")!).render(
+  <BrowserRouter>
+    <AuthProvider>
+      <App />
+    </AuthProvider>
+  </BrowserRouter>,
+);
+```
+
+---
+
+## 10. Route guard
+
+`src/auth/RequireAuth.tsx`:
 
 ```tsx
 import { Navigate, Outlet } from "react-router-dom";
-import { useEffect, useState } from "react";
-import { getMe, getTokens } from "./lib/api";
-import type { MeResponse, UserType } from "./lib/types";
+import { useAuth } from "./AuthProvider";
+import type { UserType } from "../lib/types";
 
 const ORG_ROLES: UserType[] = [
   "central_admin",
@@ -668,28 +1129,22 @@ const ORG_ROLES: UserType[] = [
 export function RequireAuth({
   orgOnly = false,
   centralAdminOnly = false,
+  requireSpace = false,
 }: {
   orgOnly?: boolean;
   centralAdminOnly?: boolean;
+  requireSpace?: boolean;
 }) {
-  const [me, setMe] = useState<MeResponse | null | undefined>(undefined);
+  const { me, ready } = useAuth();
 
-  useEffect(() => {
-    if (!getTokens()) {
-      setMe(null);
-      return;
-    }
-    getMe().then(setMe).catch(() => setMe(null));
-  }, []);
-
-  if (me === undefined) return null;
+  if (!ready) return null;
   if (!me) return <Navigate to="/login" replace />;
 
   const role = me.profile?.user_type;
 
   if (orgOnly) {
     if (!role || !ORG_ROLES.includes(role)) {
-      return <Navigate to="/admin-home" replace />;
+      return <Navigate to="/" replace />;
     }
     if (!me.org?.is_active) {
       return <p>Your organisation has been suspended.</p>;
@@ -700,26 +1155,62 @@ export function RequireAuth({
     return <Navigate to="/" replace />;
   }
 
+  if (requireSpace && !me.profile?.space) {
+    return <p>No space assigned yet. Contact your central admin.</p>;
+  }
+
   return <Outlet context={{ me }} />;
 }
 ```
 
-- Unauthenticated → `/login`
-- Org routes (`orgOnly`): any org-assignable role + active org
-- Member management and space assignment (`centralAdminOnly`): `central_admin` only
-- Inactive org → show suspended, do not render org UI
-- `super_admin` → platform home, not org routes (`org` is `null`)
-- Space incharge PR UI: require `me.profile.space`
-- Hide vendor/catalog screens for `space_incharge`
+---
 
-### Get Started page
+## 11. Screen examples
 
-Welcome emails point at `/get-started?uid=...&token=...`.
+### Login
+
+```tsx
+import { FormEvent, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "../auth/AuthProvider";
+import { formatApiError } from "../lib/errors";
+
+export function LoginPage() {
+  const { login } = useAuth();
+  const navigate = useNavigate();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError("");
+    try {
+      await login(email, password);
+      navigate("/");
+    } catch (err) {
+      setError(formatApiError(err));
+    }
+  }
+
+  return (
+    <form onSubmit={onSubmit}>
+      {error ? <p>{error}</p> : null}
+      <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+      <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+      <button type="submit">Log in</button>
+    </form>
+  );
+}
+```
+
+### Get Started (`/get-started?uid=...&token=...`)
 
 ```tsx
 import { FormEvent, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { setPassword } from "./lib/api";
+import { setPassword } from "../lib/api";
+import { formatApiError } from "../lib/errors";
 
 export function GetStartedPage() {
   const [params] = useSearchParams();
@@ -736,8 +1227,8 @@ export function GetStartedPage() {
     try {
       await setPassword({ uid, token, new_password, new_password2 });
       navigate("/login");
-    } catch (err: unknown) {
-      setError("Link is invalid or has expired. Request a new welcome email.");
+    } catch (err) {
+      setError(formatApiError(err));
     }
   }
 
@@ -752,5 +1243,71 @@ export function GetStartedPage() {
 }
 ```
 
-Success: `{ "detail": "Password set successfully. You can now log in." }` then
-`POST /api/auth/login/`.
+### Forgot password + reset confirm
+
+Use `forgotPassword(email)` then `/reset-password?uid=...&token=...` with
+`resetPasswordConfirm({ uid, token, new_password, new_password2 })`.
+
+### Change password
+
+After success the API clears the refresh cookie — redirect to `/login`:
+
+```tsx
+await changePassword({ old_password, new_password, new_password2 });
+navigate("/login");
+```
+
+---
+
+## 12. Pagination
+
+List endpoints return:
+
+```json
+{
+  "count": 42,
+  "next": "http://localhost:8000/api/orgs/vendors/?page=2",
+  "previous": null,
+  "results": []
+}
+```
+
+Pass `?page=2` and optional `?status=active|suspended` where supported.
+
+---
+
+## 13. Authorization errors
+
+| Status | Meaning | Client action |
+|---|---|---|
+| `401` | Not logged in or access expired | Silent refresh once; then `/login` |
+| `403` | Logged in but not allowed | Show message — **do not** refresh |
+| `429` | Rate limited | Read `Retry-After` header (seconds) |
+
+If the org is suspended, login returns `400`:
+
+```json
+{
+  "non_field_errors": [
+    "Your organisation has been suspended. Please contact your administrator."
+  ]
+}
+```
+
+Gate org UI with any org-assignable `user_type` and `org?.is_active`.
+
+---
+
+## 14. Checklist
+
+1. `VITE_API_URL` points at the public API host (not Docker internal names).
+2. Axios uses `withCredentials: true`.
+3. Access token lives in memory only (`src/lib/auth.ts`).
+4. App boot calls `silentRefresh()` then `getMe()`.
+5. 401 → one refresh attempt; 403 → permission UI, not refresh.
+6. Public resources use **slug**, never UUID, in URLs and payloads.
+7. No public self-registration — users come from org member API or admin.
+8. PDF/XLSX downloads use `responseType: 'blob'` with Bearer — not plain `<a href>`.
+9. Change password / logout clears session; user must log in again after password change.
+
+Per-endpoint request and response JSON: see [`FRONTEND_API.md`](../../FRONTEND_API.md).
