@@ -202,6 +202,16 @@ SIMPLE_JWT = {
 }
 
 # ---------------------------------------------------------------------------
+# Refresh-token cookie (SPA httpOnly session)
+# ---------------------------------------------------------------------------
+# Access stays in JSON / Authorization: Bearer. Refresh is never in JS.
+REFRESH_TOKEN_COOKIE_NAME = "inveno_refresh"
+REFRESH_TOKEN_COOKIE_PATH = "/api/auth/"
+REFRESH_TOKEN_COOKIE_SAMESITE = config("REFRESH_COOKIE_SAMESITE", default="Lax")
+# False for local HTTP; production.py sets True.
+REFRESH_TOKEN_COOKIE_SECURE = False
+
+# ---------------------------------------------------------------------------
 # CORS
 # ---------------------------------------------------------------------------
 CORS_ALLOWED_ORIGINS = config(
