@@ -19,6 +19,9 @@ SECRET_KEY = config("DJANGO_SECRET_KEY")
 PROCESS_SIGNING_KEY = config(
     "PROCESS_SIGNING_KEY", default="change-me-process-signing-key"
 )
+# Optional dedicated JWT HMAC key. Falls back to DJANGO_SECRET_KEY so existing
+# tokens stay valid until you set JWT_SIGNING_KEY in production.
+JWT_SIGNING_KEY = config("JWT_SIGNING_KEY", default="") or SECRET_KEY
 ALLOWED_HOSTS = config("DJANGO_ALLOWED_HOSTS", default="*", cast=Csv())
 
 # ---------------------------------------------------------------------------
@@ -192,6 +195,7 @@ SIMPLE_JWT = {
     "BLACKLIST_AFTER_ROTATION": True,
     "UPDATE_LAST_LOGIN": True,
     "ALGORITHM": "HS256",
+    "SIGNING_KEY": JWT_SIGNING_KEY,
     "AUTH_HEADER_TYPES": ("Bearer",),
     "USER_ID_FIELD": "id",
     "USER_ID_CLAIM": "user_id",

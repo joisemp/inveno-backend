@@ -90,6 +90,8 @@ See [`.env.example`](.env.example) for the full list with descriptions.
 | `PROCESS_SIGNING_KEY` | HMAC key for the purchase-flow process trail (not `DJANGO_SECRET_KEY`; generate with `python -c "import secrets; print(secrets.token_hex(32))"`) |
 | `REDIS_URL` | Redis connection URL |
 
+Optional: `JWT_SIGNING_KEY` — HMAC key for JWTs. If unset, `DJANGO_SECRET_KEY` is used. Rotating it invalidates outstanding tokens without rotating Django's secret.
+
 ### Local Docker only
 
 | Variable | Description |
