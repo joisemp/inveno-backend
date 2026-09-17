@@ -15,6 +15,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 # Security
 # ---------------------------------------------------------------------------
 SECRET_KEY = config("DJANGO_SECRET_KEY")
+# Separate from DJANGO_SECRET_KEY so JWT rotation does not invalidate the trail.
+PROCESS_SIGNING_KEY = config(
+    "PROCESS_SIGNING_KEY", default="change-me-process-signing-key"
+)
 ALLOWED_HOSTS = config("DJANGO_ALLOWED_HOSTS", default="*", cast=Csv())
 
 # ---------------------------------------------------------------------------
@@ -44,6 +48,9 @@ LOCAL_APPS = [
     "apps.common",
     "apps.users",
     "apps.organizations",
+    "apps.vendors",
+    "apps.inventory",
+    "apps.purchases",
     "apps.healthcheck",
 ]
 
@@ -191,6 +198,7 @@ SIMPLE_JWT = {
     # Custom serializer adds user_type / org_id / org_suffix claims and
     # blocks login for users whose org is inactive.
     "TOKEN_OBTAIN_SERIALIZER": "apps.users.serializers.CustomTokenObtainPairSerializer",
+    "TOKEN_REFRESH_SERIALIZER": "apps.users.serializers.CustomTokenRefreshSerializer",
 }
 
 # ---------------------------------------------------------------------------
@@ -239,6 +247,11 @@ SPECTACULAR_SETTINGS = {
         "| Tag | Base path |\n"
         "|-----|-----------|\n"
         "| Auth | `/api/auth/` |\n"
+        "| Organisation | `/api/orgs/` |\n"
+        "| Spaces | `/api/orgs/spaces/` |\n"
+        "| Items | `/api/orgs/items/` |\n"
+        "| Purchases | `/api/orgs/purchase-requests/` |\n"
+        "| Vendors | `/api/orgs/vendors/` |\n"
         "| System | `/api/health/` |"
     ),
     "VERSION": "1.0.0",
@@ -246,6 +259,26 @@ SPECTACULAR_SETTINGS = {
         {
             "name": "Auth",
             "description": "JWT login, session, profile, and password flows.",
+        },
+        {
+            "name": "Organisation",
+            "description": "Organisation members — central-admin only.",
+        },
+        {
+            "name": "Spaces",
+            "description": "Org spaces — central admin writes; ops and assigned space incharges can read.",
+        },
+        {
+            "name": "Items",
+            "description": "Warehouse item catalog — ops may read; warehouse and central admin write (stock is not a free PATCH).",
+        },
+        {
+            "name": "Purchases",
+            "description": "Purchase requests, RFQs, POs, QC, invoices, warehouse receipts, signed trail, and PDF/Excel export.",
+        },
+        {
+            "name": "Vendors",
+            "description": "Org vendors — central admin, operation incharge, or warehouse manager.",
         },
         {
             "name": "System",

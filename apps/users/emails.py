@@ -2,7 +2,7 @@
 Email helpers for the users app.
 
 send_welcome_email() sends the one-time get-started email to a newly created
-central admin so they can set their password and access the platform.
+org user so they can set their password and access the platform.
 """
 import logging
 

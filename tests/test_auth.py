@@ -83,6 +83,51 @@ class TestLogin:
         )
         assert response.status_code == 400
 
+    def test_login_suspended_user_blocked(self, api_client, warehouse_manager):
+        """Suspended org user with the correct password gets a 400, not 401."""
+        warehouse_manager.is_active = False
+        warehouse_manager.save()
+        response = api_client.post(
+            LOGIN_URL,
+            {"email": warehouse_manager.email, "password": "StrongPass123!"},
+        )
+        assert response.status_code == 400
+        assert "account has been suspended" in str(response.data).lower()
+
+    def test_login_suspended_user_wrong_password_is_401(
+        self, api_client, warehouse_manager
+    ):
+        warehouse_manager.is_active = False
+        warehouse_manager.save()
+        response = api_client.post(
+            LOGIN_URL,
+            {"email": warehouse_manager.email, "password": "wrong"},
+        )
+        assert response.status_code == 401
+
+    def test_login_after_unsuspend(self, api_client, warehouse_manager):
+        warehouse_manager.is_active = False
+        warehouse_manager.save()
+        warehouse_manager.is_active = True
+        warehouse_manager.save()
+        response = api_client.post(
+            LOGIN_URL,
+            {"email": warehouse_manager.email, "password": "StrongPass123!"},
+        )
+        assert response.status_code == 200
+
+    def test_refresh_rejected_after_suspend(self, api_client, warehouse_manager):
+        login = api_client.post(
+            LOGIN_URL,
+            {"email": warehouse_manager.email, "password": "StrongPass123!"},
+        )
+        assert login.status_code == 200
+        refresh = login.data["refresh"]
+        warehouse_manager.is_active = False
+        warehouse_manager.save()
+        response = api_client.post(TOKEN_REFRESH_URL, {"refresh": refresh})
+        assert response.status_code == 401
+
     def test_superuser_login_unaffected_by_inactive_org(self, api_client, superuser):
         """Superusers have no org — inactive org check must not apply to them."""
         response = api_client.post(
@@ -113,8 +158,17 @@ class TestMe:
         assert data["profile"] is not None
         assert data["profile"]["user_type"] == "central_admin"
         assert data["profile"]["first_name"] == "Test"
+        assert data["profile"]["space"] is None
         assert data["org"] is not None
         assert data["org"]["org_suffix"] == "test_org"
+
+    def test_get_me_includes_assigned_space(self, assigned_space_client, space):
+        response = assigned_space_client.get(ME_URL)
+        assert response.status_code == 200
+        assert response.data["profile"]["space"] == {
+            "slug": space.slug,
+            "name": space.name,
+        }
 
     def test_get_me_superuser_org_is_null(self, superuser_client):
         response = superuser_client.get(ME_URL)

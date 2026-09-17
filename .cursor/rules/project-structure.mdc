@@ -68,9 +68,12 @@ Never use relative imports across apps.
 
 ## Git Workflow
 
-- Commit after every meaningful unit of work with a short descriptive message
+- Commit after every meaningful unit of work (each major step), without waiting to be asked
+- Skip only if the user explicitly says not to commit
+- Use conventional prefixes: `feat:`, `fix:`, `test:`, `docs:`, `refactor:`
   Examples: `feat: add Organization model`, `feat: org admin add form`, `test: org service tests`
-- Use conventional commit prefixes: `feat:`, `fix:`, `test:`, `docs:`, `refactor:`
+- Never commit `.env`, credentials, or secrets
+- Follow `.cursor/rules/git-commits.mdc`
 
 ## Terminal Commands (PowerShell)
 

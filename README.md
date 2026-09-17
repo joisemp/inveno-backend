@@ -87,6 +87,7 @@ See [`.env.example`](.env.example) for the full list with descriptions.
 | Variable | Description |
 |---|---|
 | `DJANGO_SECRET_KEY` | Django secret key (generate with `python -c "import secrets; print(secrets.token_hex(50))"`) |
+| `PROCESS_SIGNING_KEY` | HMAC key for the purchase-flow process trail (not `DJANGO_SECRET_KEY`; generate with `python -c "import secrets; print(secrets.token_hex(32))"`) |
 | `REDIS_URL` | Redis connection URL |
 
 ### Local Docker only

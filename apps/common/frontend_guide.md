@@ -11,27 +11,36 @@ Log in at `/admin/` first — this page is staff-only, same as Swagger.
 ## 1. Roles
 
 There is **no public register**. Super admins create organisations and the first
-central admin in Django Admin.
+central admin in Django Admin. Central admins then add further org users via
+`POST /api/orgs/members/`.
 
 | `user_type` | Staff? | `org` | What they can do in the UI |
 |---|---|---|---|
 | `super_admin` | yes | always `null` | Platform admin; no org-scoped screens |
-| `central_admin` | no | required | Org-scoped app; blocked if `org.is_active` is false |
+| `central_admin` | no | required | Org owner: members, spaces, incharge assignment, vendors, catalog, full purchase override |
+| `operation_incharge` | no | required | Purchase flow (create PRs with optional space; RFQ/quotes/PO/QC/invoice/export). Cannot manage members or spaces |
+| `warehouse_manager` | no | required | Vendors, item catalog writes, warehouse receipts. Cannot manage members or run RFQ/PO |
+| `space_incharge` | no | required | GET their assigned space; raise/edit PRs for that space only. No vendors or catalog |
 
 Use `GET /api/auth/me/` as the source of truth for routing. JWT claims are a
-hint for the first paint only.
+hint for the first paint only. For space incharges, `profile.space` is
+`{ slug, name }` when assigned, otherwise `null` (they cannot submit PRs yet).
 
 ---
 
 ## 2. Onboarding
 
 1. Super admin creates the org + first central admin in `/admin/`.
-2. The API emails a Get Started link: `{FRONTEND_URL}/get-started?uid=...&token=...`
+2. A central admin may add more users (`central_admin`, `operation_incharge`,
+   `warehouse_manager`, or `space_incharge`) with `POST /api/orgs/members/`.
+   Space is **not** sent on create. After adding a `space_incharge`, assign them
+   with `POST /api/orgs/spaces/{slug}/incharges/`.
+3. The API emails a Get Started link: `{FRONTEND_URL}/get-started?uid=...&token=...`
    (`FRONTEND_URL` defaults to `http://localhost:5173`).
-3. The Get Started page calls `POST /api/auth/password/set/` (public, 7-day
+4. The Get Started page calls `POST /api/auth/password/set/` (public, 7-day
    one-time token).
-4. Then `POST /api/auth/login/` with email + password.
-5. Store the JWT pair and call `GET /api/auth/me/`.
+5. Then `POST /api/auth/login/` with email + password.
+6. Store the JWT pair and call `GET /api/auth/me/`.
 
 The password-set token is **not** the same as the forgot-password token.
 
@@ -72,8 +81,8 @@ Access-token payload (after the standard `exp` / `token_type` fields):
 
 For `super_admin`, `org_id` and `org_suffix` are `null`.
 
-Still call `GET /api/auth/me/` after login. `/me` includes names, phone, and
-`org.is_active`, which claims do not.
+Still call `GET /api/auth/me/` after login. `/me` includes names, phone,
+`profile.space`, and `org.is_active`, which claims do not.
 
 ---
 
@@ -84,6 +93,15 @@ Still call `GET /api/auth/me/` after login. `/me` includes names, phone, and
 | `GET /api/health/` | Public |
 | `POST /api/auth/login/`, refresh, verify, password set/reset | Public (throttled 10/min) |
 | Most `/api/auth/*` | `IsAuthenticated` (Bearer) |
+| `GET/POST /api/orgs/members/`, resend welcome, suspend, unsuspend | Central admin of an active org |
+| `POST /api/orgs/spaces/`, PATCH/suspend, assign incharges | Central admin of an active org |
+| `GET /api/orgs/spaces/` | Central admin, operation incharge, or assigned space incharge |
+| `/api/orgs/vendors/` (list/add/get/patch/suspend) | Central admin, operation incharge, or warehouse manager |
+| `GET /api/orgs/items/` | Central admin, operation incharge, or warehouse manager |
+| `POST/PATCH /api/orgs/items/` | Central admin or warehouse manager |
+| `GET/POST /api/orgs/purchase-requests/` | Space incharge (assigned space), operation incharge, or central admin |
+| RFQ / PO / QC / invoice / trail / verify | Operation incharge or central admin |
+| `/api/orgs/warehouse/receipts/` | Warehouse manager or central admin |
 | `/api/docs/`, `/api/docs/frontend/`, `/api/redoc/`, `/api/schema/` | Staff session or staff JWT |
 
 If the org is suspended, login returns `400`:
@@ -96,7 +114,23 @@ If the org is suspended, login returns `400`:
 }
 ```
 
-Gate org UI with `profile.user_type === "central_admin"` and `org?.is_active`.
+If the **account** is suspended, login returns `400`:
+
+```json
+{
+  "non_field_errors": [
+    "Your account has been suspended. Please contact your administrator."
+  ]
+}
+```
+
+Gate org UI with any org-assignable `user_type` and `org?.is_active`.
+Gate **member management and space assignment** with
+`profile.user_type === "central_admin"`.
+Vendor screens: `central_admin`, `operation_incharge`, or `warehouse_manager`
+— **not** `space_incharge`.
+Space incharge PR screens: only when `profile.space` is set.
+Warehouse inbound: `warehouse_manager` or `central_admin`.
 A `403` from any authenticated route means the user is logged in but not allowed
 — do not try to refresh the token for that.
 
@@ -154,7 +188,24 @@ Install the HTTP client: `npm i axios`.
 ### Types
 
 ```ts
-export type UserType = "super_admin" | "central_admin";
+export type UserType =
+  | "super_admin"
+  | "central_admin"
+  | "operation_incharge"
+  | "warehouse_manager"
+  | "space_incharge";
+export type OrgAssignableUserType =
+  | "central_admin"
+  | "operation_incharge"
+  | "warehouse_manager"
+  | "space_incharge";
+
+export const ORG_USER_TYPES: UserType[] = [
+  "central_admin",
+  "operation_incharge",
+  "warehouse_manager",
+  "space_incharge",
+];
 
 export type TokenPair = {
   access: string;
@@ -179,6 +230,7 @@ export type MeResponse = {
     last_name: string;
     phone: string;
     full_name: string;
+    space: { slug: string; name: string } | null;
   } | null;
   org: {
     id: string;
@@ -189,6 +241,105 @@ export type MeResponse = {
     registered_on: string;
   } | null;
 };
+
+export type OrgMember = {
+  slug: string;
+  email: string;
+  user_type: OrgAssignableUserType;
+  first_name: string;
+  last_name: string;
+  phone: string;
+  full_name: string;
+  is_active: boolean;
+  has_usable_password: boolean;
+  date_joined: string;
+  space: { slug: string; name: string } | null;
+};
+
+export type Paginated<T> = {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
+};
+
+export type Vendor = {
+  slug: string;
+  name: string;
+  contact_name: string;
+  phone: string;
+  email: string;
+  address: string;
+  gst: string;
+  website: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type VendorWrite = {
+  name: string;
+  contact_name: string;
+  phone: string;
+  address: string;
+  email?: string;
+  gst?: string;
+  website?: string;
+};
+
+export type Space = {
+  slug: string;
+  name: string;
+  location: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type Item = {
+  slug: string;
+  name: string;
+  sku: string;
+  unit: string;
+  quantity_on_hand: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PurchaseRequestLine = {
+  slug: string;
+  description: string;
+  quantity: string;
+  unit: string;
+  item: string | null;
+  awarded_vendor: string | null;
+};
+
+export type PurchaseRequest = {
+  slug: string;
+  title: string;
+  status: "draft" | "submitted" | "approved" | "revision_requested" | "declined";
+  notes: string;
+  space: string | null;
+  created_by: string;
+  review_reason: string;
+  lines: PurchaseRequestLine[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type PurchaseRequestWrite = {
+  title: string;
+  notes?: string;
+  space?: string | null;
+  lines: {
+    description: string;
+    quantity: string;
+    unit: string;
+    item?: string;
+  }[];
+};
 ```
 
 ### `src/lib/api.ts`
@@ -197,7 +348,19 @@ Bearer interceptor, queued refresh-on-401, logout when refresh fails.
 
 ```ts
 import axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
-import type { MeResponse, TokenPair } from "./types";
+import type {
+  MeResponse,
+  OrgAssignableUserType,
+  OrgMember,
+  Paginated,
+  TokenPair,
+  Vendor,
+  VendorWrite,
+  Space,
+  Item,
+  PurchaseRequest,
+  PurchaseRequestWrite,
+} from "./types";
 
 const TOKEN_KEY = "inveno.tokens";
 
@@ -302,6 +465,186 @@ export async function forgotPassword(email: string) {
   });
   return data;
 }
+
+export async function listOrgMembers(status?: "active" | "suspended") {
+  const { data } = await api.get<Paginated<OrgMember>>("/api/orgs/members/", {
+    params: status ? { status } : undefined,
+  });
+  return data;
+}
+
+export async function addOrgMember(body: {
+  email: string;
+  first_name: string;
+  last_name: string;
+  phone?: string;
+  user_type: OrgAssignableUserType;
+}) {
+  const { data } = await api.post<OrgMember>("/api/orgs/members/", body);
+  return data;
+}
+
+export async function resendWelcome(slug: string) {
+  const { data } = await api.post<{ detail: string }>(
+    `/api/orgs/members/${slug}/resend-welcome/`,
+  );
+  return data;
+}
+
+export async function suspendMember(slug: string) {
+  const { data } = await api.post<{ detail: string }>(
+    `/api/orgs/members/${slug}/suspend/`,
+  );
+  return data;
+}
+
+export async function unsuspendMember(slug: string) {
+  const { data } = await api.post<{ detail: string }>(
+    `/api/orgs/members/${slug}/unsuspend/`,
+  );
+  return data;
+}
+
+export async function listVendors(status?: "active" | "suspended") {
+  const { data } = await api.get<Paginated<Vendor>>("/api/orgs/vendors/", {
+    params: status ? { status } : undefined,
+  });
+  return data;
+}
+
+export async function addVendor(body: VendorWrite) {
+  const { data } = await api.post<Vendor>("/api/orgs/vendors/", body);
+  return data;
+}
+
+export async function getVendor(slug: string) {
+  const { data } = await api.get<Vendor>(`/api/orgs/vendors/${slug}/`);
+  return data;
+}
+
+export async function updateVendor(slug: string, body: Partial<VendorWrite>) {
+  const { data } = await api.patch<Vendor>(`/api/orgs/vendors/${slug}/`, body);
+  return data;
+}
+
+export async function suspendVendor(slug: string) {
+  const { data } = await api.post<{ detail: string }>(
+    `/api/orgs/vendors/${slug}/suspend/`,
+  );
+  return data;
+}
+
+export async function unsuspendVendor(slug: string) {
+  const { data } = await api.post<{ detail: string }>(
+    `/api/orgs/vendors/${slug}/unsuspend/`,
+  );
+  return data;
+}
+
+export async function listSpaces(status?: "active" | "suspended") {
+  const { data } = await api.get<Paginated<Space>>("/api/orgs/spaces/", {
+    params: status ? { status } : undefined,
+  });
+  return data;
+}
+
+export async function createSpace(body: { name: string; location?: string }) {
+  const { data } = await api.post<Space>("/api/orgs/spaces/", body);
+  return data;
+}
+
+export async function assignSpaceIncharge(spaceSlug: string, member: string) {
+  const { data } = await api.post<OrgMember>(
+    `/api/orgs/spaces/${spaceSlug}/incharges/`,
+    { member },
+  );
+  return data;
+}
+
+export async function listItems(status?: "active" | "suspended") {
+  const { data } = await api.get<Paginated<Item>>("/api/orgs/items/", {
+    params: status ? { status } : undefined,
+  });
+  return data;
+}
+
+export async function listPurchaseRequests() {
+  const { data } = await api.get<Paginated<PurchaseRequest>>(
+    "/api/orgs/purchase-requests/",
+  );
+  return data;
+}
+
+export async function createPurchaseRequest(body: PurchaseRequestWrite) {
+  const { data } = await api.post<PurchaseRequest>(
+    "/api/orgs/purchase-requests/",
+    body,
+  );
+  return data;
+}
+
+export async function submitPurchaseRequest(slug: string) {
+  const { data } = await api.post<PurchaseRequest>(
+    `/api/orgs/purchase-requests/${slug}/submit/`,
+  );
+  return data;
+}
+
+export async function recordQuote(
+  rfqSlug: string,
+  body: {
+    vendor: string;
+    lines: { line: string; unit_price: string }[];
+  },
+) {
+  const { data } = await api.post(`/api/orgs/rfqs/${rfqSlug}/quotes/`, body);
+  return data;
+}
+
+export async function selectQuoteLines(
+  rfqSlug: string,
+  selections: { line: string; vendor: string }[],
+) {
+  const { data } = await api.post(`/api/orgs/rfqs/${rfqSlug}/select-lines/`, {
+    selections,
+  });
+  return data;
+}
+
+export async function completeWarehouseReceipt(
+  slug: string,
+  lines: {
+    line: string;
+    action: "new_item" | "add_to_existing";
+    item?: string;
+    name?: string;
+    sku?: string;
+    unit?: string;
+  }[],
+) {
+  const { data } = await api.post(
+    `/api/orgs/warehouse/receipts/${slug}/complete/`,
+    { lines },
+  );
+  return data;
+}
+
+export async function verifyProcessEvent(content_hash: string, signature: string) {
+  const { data } = await api.post<{ valid: boolean }>(
+    "/api/orgs/process-events/verify/",
+    { content_hash, signature },
+  );
+  return data;
+}
+
+export function exportUrl(
+  kind: "purchase-requests" | "rfqs" | "purchase-orders" | "warehouse/receipts",
+  slug: string,
+  format: "pdf" | "xlsx",
+  extra = "",
+) {
+  return `/api/orgs/${kind}/${slug}/${extra}export/?format=${format}`;
+}
 ```
 
 Skip the interceptor refresh for `/api/auth/token/refresh/` itself (the snippet
@@ -313,9 +656,22 @@ uses a bare `axios.post` for that reason).
 import { Navigate, Outlet } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { getMe, getTokens } from "./lib/api";
-import type { MeResponse } from "./lib/types";
+import type { MeResponse, UserType } from "./lib/types";
 
-export function RequireAuth({ orgOnly = false }: { orgOnly?: boolean }) {
+const ORG_ROLES: UserType[] = [
+  "central_admin",
+  "operation_incharge",
+  "warehouse_manager",
+  "space_incharge",
+];
+
+export function RequireAuth({
+  orgOnly = false,
+  centralAdminOnly = false,
+}: {
+  orgOnly?: boolean;
+  centralAdminOnly?: boolean;
+}) {
   const [me, setMe] = useState<MeResponse | null | undefined>(undefined);
 
   useEffect(() => {
@@ -329,8 +685,10 @@ export function RequireAuth({ orgOnly = false }: { orgOnly?: boolean }) {
   if (me === undefined) return null;
   if (!me) return <Navigate to="/login" replace />;
 
+  const role = me.profile?.user_type;
+
   if (orgOnly) {
-    if (me.profile?.user_type !== "central_admin") {
+    if (!role || !ORG_ROLES.includes(role)) {
       return <Navigate to="/admin-home" replace />;
     }
     if (!me.org?.is_active) {
@@ -338,13 +696,21 @@ export function RequireAuth({ orgOnly = false }: { orgOnly?: boolean }) {
     }
   }
 
+  if (centralAdminOnly && role !== "central_admin") {
+    return <Navigate to="/" replace />;
+  }
+
   return <Outlet context={{ me }} />;
 }
 ```
 
 - Unauthenticated → `/login`
-- `central_admin` + inactive org → show suspended, do not render org UI
+- Org routes (`orgOnly`): any org-assignable role + active org
+- Member management and space assignment (`centralAdminOnly`): `central_admin` only
+- Inactive org → show suspended, do not render org UI
 - `super_admin` → platform home, not org routes (`org` is `null`)
+- Space incharge PR UI: require `me.profile.space`
+- Hide vendor/catalog screens for `space_incharge`
 
 ### Get Started page
 

@@ -10,7 +10,7 @@ UserProfile — display identity (name, phone), user role, and org FK.
 
 Org link rule (enforced in UserProfile.clean):
   - staff / superuser  → org must be None  (user_type = super_admin)
-  - non-staff          → org is required   (user_type = central_admin or other)
+  - non-staff          → org is required (org-assignable user_type)
 """
 import uuid
 
@@ -107,13 +107,61 @@ class UserProfile(UUIDModel, SlugMixin):
 
     Org link rule:
       - Staff / superusers   → user_type = SUPER_ADMIN,  org = None
-      - Non-staff users      → user_type = CENTRAL_ADMIN (or future types),
-                               org = required (FK to Organization)
+      - Non-staff users      → org is required; user_type is an org-assignable
+                               role (central_admin, operation_incharge,
+                               warehouse_manager, space_incharge)
     """
 
     class UserType(models.TextChoices):
         SUPER_ADMIN = "super_admin", _("Super Admin")
         CENTRAL_ADMIN = "central_admin", _("Central Admin")
+        OPERATION_INCHARGE = "operation_incharge", _("Operation Incharge")
+        WAREHOUSE_MANAGER = "warehouse_manager", _("Warehouse Manager")
+        SPACE_INCHARGE = "space_incharge", _("Space Incharge")
+
+    # Roles a central admin may assign when adding an org user.
+    # super_admin is platform-only and is never in this set.
+    ORG_ASSIGNABLE_TYPES = frozenset(
+        {
+            UserType.CENTRAL_ADMIN,
+            UserType.OPERATION_INCHARGE,
+            UserType.WAREHOUSE_MANAGER,
+            UserType.SPACE_INCHARGE,
+        }
+    )
+    VENDOR_ACCESS_TYPES = frozenset(
+        {
+            UserType.CENTRAL_ADMIN,
+            UserType.OPERATION_INCHARGE,
+            UserType.WAREHOUSE_MANAGER,
+        }
+    )
+    PURCHASE_OPERATOR_TYPES = frozenset(
+        {
+            UserType.CENTRAL_ADMIN,
+            UserType.OPERATION_INCHARGE,
+        }
+    )
+    ITEM_READ_TYPES = frozenset(
+        {
+            UserType.CENTRAL_ADMIN,
+            UserType.OPERATION_INCHARGE,
+            UserType.WAREHOUSE_MANAGER,
+        }
+    )
+    ITEM_WRITE_TYPES = frozenset(
+        {
+            UserType.CENTRAL_ADMIN,
+            UserType.WAREHOUSE_MANAGER,
+        }
+    )
+    SPACE_VIEW_TYPES = frozenset(
+        {
+            UserType.CENTRAL_ADMIN,
+            UserType.OPERATION_INCHARGE,
+            UserType.SPACE_INCHARGE,
+        }
+    )
 
     user = models.OneToOneField(
         User,
@@ -134,6 +182,13 @@ class UserProfile(UUIDModel, SlugMixin):
         "organizations.Organization",
         on_delete=models.SET_NULL,
         related_name="profiles",
+        null=True,
+        blank=True,
+    )
+    space = models.ForeignKey(
+        "organizations.Space",
+        on_delete=models.SET_NULL,
+        related_name="incharges",
         null=True,
         blank=True,
     )
@@ -164,3 +219,12 @@ class UserProfile(UUIDModel, SlugMixin):
             raise ValidationError(
                 {"org": "Non-staff users must be linked to an organisation."}
             )
+        if self.space_id:
+            if self.user_type != self.UserType.SPACE_INCHARGE:
+                raise ValidationError(
+                    {"space": "Only a space incharge may be assigned to a space."}
+                )
+            if self.space.org_id != self.org_id:
+                raise ValidationError(
+                    {"space": "Space must belong to the same organisation."}
+                )

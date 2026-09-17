@@ -13,6 +13,52 @@ EXPECTED_PATHS = [
     "/api/auth/password/reset/",
     "/api/auth/password/reset/confirm/",
     "/api/auth/password/set/",
+    "/api/orgs/members/",
+    "/api/orgs/members/{slug}/resend-welcome/",
+    "/api/orgs/members/{slug}/suspend/",
+    "/api/orgs/members/{slug}/unsuspend/",
+    "/api/orgs/spaces/",
+    "/api/orgs/spaces/{slug}/",
+    "/api/orgs/spaces/{slug}/suspend/",
+    "/api/orgs/spaces/{slug}/unsuspend/",
+    "/api/orgs/spaces/{slug}/incharges/",
+    "/api/orgs/spaces/{slug}/incharges/{member}/unassign/",
+    "/api/orgs/vendors/",
+    "/api/orgs/vendors/{slug}/",
+    "/api/orgs/vendors/{slug}/suspend/",
+    "/api/orgs/vendors/{slug}/unsuspend/",
+    "/api/orgs/items/",
+    "/api/orgs/items/{slug}/",
+    "/api/orgs/items/{slug}/suspend/",
+    "/api/orgs/items/{slug}/unsuspend/",
+    "/api/orgs/purchase-requests/",
+    "/api/orgs/purchase-requests/{slug}/",
+    "/api/orgs/purchase-requests/{slug}/submit/",
+    "/api/orgs/purchase-requests/{slug}/approve/",
+    "/api/orgs/purchase-requests/{slug}/decline/",
+    "/api/orgs/purchase-requests/{slug}/request-revision/",
+    "/api/orgs/purchase-requests/{slug}/trail/",
+    "/api/orgs/purchase-requests/{slug}/export/",
+    "/api/orgs/rfqs/",
+    "/api/orgs/rfqs/{slug}/",
+    "/api/orgs/rfqs/{slug}/vendors/",
+    "/api/orgs/rfqs/{slug}/vendors/{vendor_slug}/reject/",
+    "/api/orgs/rfqs/{slug}/quotes/",
+    "/api/orgs/rfqs/{slug}/request-revision/",
+    "/api/orgs/rfqs/{slug}/select-lines/",
+    "/api/orgs/rfqs/{slug}/purchase-orders/",
+    "/api/orgs/rfqs/{slug}/export/",
+    "/api/orgs/purchase-orders/",
+    "/api/orgs/purchase-orders/{slug}/",
+    "/api/orgs/purchase-orders/{slug}/quality-check/",
+    "/api/orgs/purchase-orders/{slug}/invoice/",
+    "/api/orgs/purchase-orders/{slug}/export/",
+    "/api/orgs/purchase-orders/{slug}/invoice/export/",
+    "/api/orgs/warehouse/receipts/",
+    "/api/orgs/warehouse/receipts/{slug}/",
+    "/api/orgs/warehouse/receipts/{slug}/complete/",
+    "/api/orgs/warehouse/receipts/{slug}/export/",
+    "/api/orgs/process-events/verify/",
     "/api/schema/",
     "/api/docs/",
     "/api/docs/frontend/",
@@ -37,6 +83,104 @@ def test_login_schema_documents_success_and_errors():
     responses = schema["paths"]["/api/auth/login/"]["post"]["responses"]
     for code in ("200", "400", "401", "429"):
         assert code in responses, f"login missing response {code}"
+
+
+@pytest.mark.django_db
+def test_org_members_schema_documents_success_and_errors():
+    """Member endpoints must declare success and auth/validation errors."""
+    schema = SchemaGenerator().get_schema(request=None, public=True)
+    post = schema["paths"]["/api/orgs/members/"]["post"]["responses"]
+    for code in ("201", "400", "401", "403"):
+        assert code in post, f"members POST missing response {code}"
+    get = schema["paths"]["/api/orgs/members/"]["get"]["responses"]
+    for code in ("200", "400", "401", "403"):
+        assert code in get, f"members GET missing response {code}"
+    resend = schema["paths"]["/api/orgs/members/{slug}/resend-welcome/"]["post"][
+        "responses"
+    ]
+    for code in ("200", "400", "401", "403", "404"):
+        assert code in resend, f"resend missing response {code}"
+    suspend = schema["paths"]["/api/orgs/members/{slug}/suspend/"]["post"]["responses"]
+    for code in ("200", "400", "401", "403", "404"):
+        assert code in suspend, f"suspend missing response {code}"
+    unsuspend = schema["paths"]["/api/orgs/members/{slug}/unsuspend/"]["post"][
+        "responses"
+    ]
+    for code in ("200", "400", "401", "403", "404"):
+        assert code in unsuspend, f"unsuspend missing response {code}"
+
+
+@pytest.mark.django_db
+def test_vendors_schema_documents_success_and_errors():
+    """Vendor endpoints must declare success and auth/validation errors."""
+    schema = SchemaGenerator().get_schema(request=None, public=True)
+    post = schema["paths"]["/api/orgs/vendors/"]["post"]["responses"]
+    for code in ("201", "400", "401", "403"):
+        assert code in post, f"vendors POST missing response {code}"
+    get = schema["paths"]["/api/orgs/vendors/"]["get"]["responses"]
+    for code in ("200", "400", "401", "403"):
+        assert code in get, f"vendors GET missing response {code}"
+    detail = schema["paths"]["/api/orgs/vendors/{slug}/"]["get"]["responses"]
+    for code in ("200", "401", "403", "404"):
+        assert code in detail, f"vendor GET missing response {code}"
+    patch = schema["paths"]["/api/orgs/vendors/{slug}/"]["patch"]["responses"]
+    for code in ("200", "400", "401", "403", "404"):
+        assert code in patch, f"vendor PATCH missing response {code}"
+    suspend = schema["paths"]["/api/orgs/vendors/{slug}/suspend/"]["post"]["responses"]
+    for code in ("200", "400", "401", "403", "404"):
+        assert code in suspend, f"vendor suspend missing response {code}"
+
+
+@pytest.mark.django_db
+def test_spaces_schema_documents_success_and_errors():
+    """Space endpoints must declare success and auth/validation errors."""
+    schema = SchemaGenerator().get_schema(request=None, public=True)
+    post = schema["paths"]["/api/orgs/spaces/"]["post"]["responses"]
+    for code in ("201", "400", "401", "403"):
+        assert code in post, f"spaces POST missing response {code}"
+    get = schema["paths"]["/api/orgs/spaces/"]["get"]["responses"]
+    for code in ("200", "400", "401", "403"):
+        assert code in get, f"spaces GET missing response {code}"
+    assign = schema["paths"]["/api/orgs/spaces/{slug}/incharges/"]["post"]["responses"]
+    for code in ("200", "400", "401", "403", "404"):
+        assert code in assign, f"space assign missing response {code}"
+
+
+@pytest.mark.django_db
+def test_items_schema_documents_success_and_errors():
+    """Item catalog endpoints must declare success and auth/validation errors."""
+    schema = SchemaGenerator().get_schema(request=None, public=True)
+    post = schema["paths"]["/api/orgs/items/"]["post"]["responses"]
+    for code in ("201", "400", "401", "403"):
+        assert code in post, f"items POST missing response {code}"
+    get = schema["paths"]["/api/orgs/items/"]["get"]["responses"]
+    for code in ("200", "400", "401", "403"):
+        assert code in get, f"items GET missing response {code}"
+
+
+@pytest.mark.django_db
+def test_purchases_schema_documents_success_and_errors():
+    """Purchase-flow endpoints must declare success and auth/validation errors."""
+    schema = SchemaGenerator().get_schema(request=None, public=True)
+    pr_post = schema["paths"]["/api/orgs/purchase-requests/"]["post"]["responses"]
+    for code in ("201", "400", "401", "403"):
+        assert code in pr_post, f"PR POST missing response {code}"
+    select = schema["paths"]["/api/orgs/rfqs/{slug}/select-lines/"]["post"]["responses"]
+    for code in ("200", "400", "401", "403", "404"):
+        assert code in select, f"select-lines missing response {code}"
+    complete = schema["paths"]["/api/orgs/warehouse/receipts/{slug}/complete/"]["post"][
+        "responses"
+    ]
+    for code in ("200", "400", "401", "403", "404"):
+        assert code in complete, f"receipt complete missing response {code}"
+    verify = schema["paths"]["/api/orgs/process-events/verify/"]["post"]["responses"]
+    for code in ("200", "401", "403"):
+        assert code in verify, f"verify missing response {code}"
+    export = schema["paths"]["/api/orgs/purchase-requests/{slug}/export/"]["get"][
+        "responses"
+    ]
+    for code in ("200", "400", "401", "403", "404"):
+        assert code in export, f"PR export missing response {code}"
 
 
 @pytest.mark.django_db

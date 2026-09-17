@@ -39,9 +39,33 @@ def get_slug_source(self) -> str:
 - `users.User` — login model, excluded by design
 - Any other model only if explicitly stated in the task
 
+## Public API identification
+
+Domain resources are addressed by **`slug`**, never UUID `id`.
+
+- Path params, `lookup_field`, and create/list/detail JSON use `slug`
+- Do not put UUID `id` in URLs or in public API payloads
+- Do not accept `slug` in create/update bodies — generate it, return it readonly
+- DRF views: `lookup_field = "slug"` and `lookup_url_kwarg = "slug"`
+
+```python
+# BAD — UUID in the URL or payload
+path("members/<uuid:id>/resend-welcome/", ...)
+{"id": "550e8400-e29b-41d4-a716-446655440000", "email": "..."}
+
+# GOOD — slug is the public identifier
+path("members/<slug:slug>/resend-welcome/", ...)
+{"slug": "jane-doe", "email": "..."}
+```
+
+**Exceptions (User has no slug):**
+- JWT `user_id` and `GET /api/auth/me/` `id` stay the User UUID
+- Password-set `uid` stays the existing base64 user pk
+
 ## Rules for AI
 
 - Do NOT ask for slug values in admin forms or API create payloads — generate them
 - Do NOT make slug fields editable in API serializers
 - Make slug readonly in Django Admin (`readonly_fields`)
 - Use `apps.common.slugs.assign_unique_slug()` — do not write custom slug logic inline
+- Do NOT use UUID `id` in API URLs or resource JSON — use `slug` (User exceptions above)

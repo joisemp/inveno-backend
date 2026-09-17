@@ -4,7 +4,9 @@ Serializers for the users app.
 Auth serializers
 ----------------
 CustomTokenObtainPairSerializer — adds user_type / org_id / org_suffix JWT
-                                  claims and checks org.is_active on login.
+                                  claims and checks account + org is_active
+                                  on login.
+CustomTokenRefreshSerializer    — rejects refresh when the user is inactive.
 MeSerializer                   — read + patch view for the authenticated user.
 ChangePasswordSerializer        — change password (requires old password).
 PasswordResetRequestSerializer  — request a forgot-password email.
@@ -17,9 +19,16 @@ from django.contrib.auth.tokens import default_token_generator
 from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode
 from rest_framework import serializers
-from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework_simplejwt.exceptions import InvalidToken
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, TokenRefreshSerializer
+from rest_framework_simplejwt.settings import api_settings as jwt_settings
+from rest_framework_simplejwt.tokens import RefreshToken
 
 User = get_user_model()
+
+ACCOUNT_SUSPENDED = (
+    "Your account has been suspended. Please contact your administrator."
+)
 
 
 # ---------------------------------------------------------------------------
@@ -30,7 +39,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     """
     Extends the default JWT pair serializer with:
     - user_type, org_id, org_suffix claims in the token.
-    - Login rejection when the user's org is inactive.
+    - Login rejection when the user account or their org is inactive.
     """
 
     @classmethod
@@ -52,6 +61,23 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         return token
 
     def validate(self, attrs):
+        email = attrs.get(self.username_field)
+        password = attrs.get("password")
+        if email and password:
+            try:
+                pending = User.objects.get(
+                    **{self.username_field: User.objects.normalize_email(email)}
+                )
+            except User.DoesNotExist:
+                pending = None
+            if (
+                pending is not None
+                and not pending.is_staff
+                and not pending.is_active
+                and pending.check_password(password)
+            ):
+                raise serializers.ValidationError(ACCOUNT_SUSPENDED)
+
         data = super().validate(attrs)
         user = self.user
 
@@ -67,6 +93,22 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
                 pass
 
         return data
+
+
+class CustomTokenRefreshSerializer(TokenRefreshSerializer):
+    """Refuse a new token pair when the user account is inactive."""
+
+    def validate(self, attrs):
+        try:
+            refresh = RefreshToken(attrs["refresh"])
+        except Exception:
+            return super().validate(attrs)
+
+        user_id = refresh.payload.get(jwt_settings.USER_ID_CLAIM)
+        user = User.objects.filter(pk=user_id).first()
+        if user is not None and not user.is_active:
+            raise InvalidToken("User is inactive")
+        return super().validate(attrs)
 
 
 # ---------------------------------------------------------------------------
@@ -115,6 +157,11 @@ class MeSerializer(serializers.ModelSerializer):
                 "last_name": p.last_name,
                 "phone": p.phone,
                 "full_name": p.full_name,
+                "space": (
+                    {"slug": p.space.slug, "name": p.space.name}
+                    if p.space_id
+                    else None
+                ),
             }
         except Exception:
             return None

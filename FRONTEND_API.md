@@ -111,16 +111,20 @@ Auth endpoints (login, password set/reset) are limited to **10 requests / minute
 
 ### Overview
 
-> **Account creation is admin-only.**  
+> **Account creation is admin-driven.**  
 > A super admin registers organisations (and their first central admin) through
-> the Django Admin at `/admin/`.  The central admin receives a welcome email
-> with a *Get Started* link.  They click the link, set their password at
+> the Django Admin at `/admin/`.  After that, a **central admin** can add more
+> users to their organisation via `POST /api/orgs/members/` (`central_admin` or
+> `warehouse_manager`).  Each new user receives a welcome email with a
+> *Get Started* link.  They click the link, set their password at
 > `POST /api/auth/password/set/`, then log in normally.
 
 ```
-[Super admin] creates org + central admin in /admin/
-  → Welcome email sent to central admin
-  → Central admin clicks "Get Started" link
+[Super admin] creates org + first central admin in /admin/
+  — or —
+[Central admin] POST /api/orgs/members/  (email, names, user_type)
+  → Welcome email sent
+  → User clicks "Get Started" link
   → POST /api/auth/password/set/  (uid + token from URL + new_password)
   → POST /api/auth/login/         (email + password)
   → receive { access, refresh }
@@ -148,14 +152,15 @@ For super admins: `org_id` and `org_suffix` are `null`.
 
 ### ~~Register (disabled)~~
 
-`POST /api/auth/register/` is **not available**. Accounts are created by super
-admins through Django Admin.
+`POST /api/auth/register/` is **not available**. The first central admin is
+created by a super admin in Django Admin. Further org users are added by a
+central admin at `POST /api/orgs/members/`.
 
 ---
 
 ### 1. Set Password — Get-Started Link
 
-Used when a central admin clicks the *Get Started* link in their welcome email.
+Used when a new org user clicks the *Get Started* link in their welcome email.
 The link contains `uid` and `token` query parameters.
 
 | | |
@@ -237,6 +242,15 @@ The link contains `uid` and `token` query parameters.
 {
   "non_field_errors": [
     "Your organisation has been suspended. Please contact your administrator."
+  ]
+}
+```
+
+**Error `400` — account suspended:**
+```json
+{
+  "non_field_errors": [
+    "Your account has been suspended. Please contact your administrator."
   ]
 }
 ```
@@ -373,13 +387,14 @@ Blacklists the refresh token so it cannot be used again.
   "email": "user@example.com",
   "date_joined": "2026-09-08T12:00:00Z",
   "updated_at": "2026-09-08T12:00:00Z",
-  "profile": {
-    "user_type": "central_admin",
-    "first_name": "Jane",
-    "last_name": "Doe",
-    "phone": "+1234567890",
-    "full_name": "Jane Doe"
-  },
+      "profile": {
+        "user_type": "central_admin",
+        "first_name": "Jane",
+        "last_name": "Doe",
+        "phone": "+1234567890",
+        "full_name": "Jane Doe",
+        "space": null
+      },
   "org": {
     "id": "org-uuid",
     "name": "Acme Corp",
@@ -391,7 +406,8 @@ Blacklists the refresh token so it cannot be used again.
 }
 ```
 
-> For super admins `org` is `null`.
+> For super admins `org` is `null`. For space incharges, `profile.space` is
+> `{ "slug": "...", "name": "..." }` when assigned, otherwise `null`.
 
 **Error `401`:** see [Shared Error Responses](#401--not-authenticated)
 
@@ -422,13 +438,14 @@ Blacklists the refresh token so it cannot be used again.
   "email": "user@example.com",
   "date_joined": "2026-09-08T12:00:00Z",
   "updated_at": "2026-09-09T08:15:00Z",
-  "profile": {
-    "user_type": "central_admin",
-    "first_name": "Jane",
-    "last_name": "Smith",
-    "phone": "+919876543210",
-    "full_name": "Jane Smith"
-  },
+      "profile": {
+        "user_type": "central_admin",
+        "first_name": "Jane",
+        "last_name": "Smith",
+        "phone": "+919876543210",
+        "full_name": "Jane Smith",
+        "space": null
+      },
   "org": {
     "id": "org-uuid",
     "name": "Acme Corp",
@@ -446,6 +463,966 @@ Blacklists the refresh token so it cannot be used again.
 ```
 
 **Error `401`:** see [Shared Error Responses](#401--not-authenticated)
+
+---
+
+## Organisation Members
+
+Central admins manage users in **their own organisation**. The org is taken
+from the JWT; there is no `org_id` in the URL or body.
+
+Public identifier is **`slug`** (auto-generated from the member's name). UUID
+`id` is not returned.
+
+Assignable `user_type` values: `central_admin`, `operation_incharge`,
+`warehouse_manager`, `space_incharge`. `super_admin` cannot be created here.
+Do **not** send `space` on create — assign space incharges with
+`POST /api/orgs/spaces/{slug}/incharges/`.
+
+Operation incharges, warehouse managers, space incharges, and super admins
+receive `403` on these endpoints.
+
+### List Members
+
+| | |
+|---|---|
+| **Method / URL** | `GET /api/orgs/members/` |
+| **Auth** | Bearer access token — **central admin** of an active org |
+
+Paginated (`count` / `next` / `previous` / `results`, page size 20).
+
+Optional query: `status=active` or `status=suspended`. Omit `status` to return
+every member. `is_active` on each item is `false` when the user is suspended.
+
+**Error `400` — invalid status:**
+```json
+{ "status": ["Must be \"active\" or \"suspended\"."] }
+```
+
+**Success `200`:**
+```json
+{
+  "count": 1,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "slug": "alice-smith",
+      "email": "alice@acme.com",
+      "user_type": "warehouse_manager",
+      "first_name": "Alice",
+      "last_name": "Smith",
+      "phone": "+15551234",
+      "full_name": "Alice Smith",
+      "is_active": true,
+      "has_usable_password": false,
+      "date_joined": "2026-09-15T10:00:00Z",
+      "space": null
+    }
+  ]
+}
+```
+
+**Error `401`:** see [Shared Error Responses](#401--not-authenticated)
+
+**Error `403`:** not a central admin, or the organisation is suspended.
+```json
+{ "detail": "You do not have permission to perform this action." }
+```
+
+---
+
+### Add Member
+
+| | |
+|---|---|
+| **Method / URL** | `POST /api/orgs/members/` |
+| **Auth** | Bearer access token — **central admin** of an active org |
+
+Creates the account with an unusable password and sends the welcome /
+get-started email. `slug` is generated — do not send it.
+
+**Request:**
+```json
+{
+  "email": "alice@acme.com",
+  "first_name": "Alice",
+  "last_name": "Smith",
+  "phone": "+15551234",
+  "user_type": "warehouse_manager"
+}
+```
+
+`phone` is optional. `user_type` must be `central_admin` or `warehouse_manager`.
+
+**Success `201`:**
+```json
+{
+  "slug": "alice-smith",
+  "email": "alice@acme.com",
+  "user_type": "warehouse_manager",
+  "first_name": "Alice",
+  "last_name": "Smith",
+  "phone": "+15551234",
+  "full_name": "Alice Smith",
+  "is_active": true,
+  "has_usable_password": false,
+  "date_joined": "2026-09-15T10:00:00Z"
+}
+```
+
+**Error `400` — duplicate email:**
+```json
+{ "email": ["A user with this email already exists."] }
+```
+
+**Error `400` — invalid user type:**
+```json
+{ "user_type": ["\"super_admin\" is not a valid choice."] }
+```
+
+**Error `401`:** see [Shared Error Responses](#401--not-authenticated)
+
+**Error `403`:** not a central admin, or the organisation is suspended.
+```json
+{ "detail": "You do not have permission to perform this action." }
+```
+
+---
+
+### Resend Welcome Email
+
+| | |
+|---|---|
+| **Method / URL** | `POST /api/orgs/members/{slug}/resend-welcome/` |
+| **Auth** | Bearer access token — **central admin** of an active org |
+
+`{slug}` is the member's `UserProfile.slug`. No request body. Only members who
+have **not** set a password yet can be resent.
+
+**Success `200`:**
+```json
+{ "detail": "Welcome email sent." }
+```
+
+**Error `400` — password already set:**
+```json
+{ "detail": "This user has already set a password." }
+```
+
+**Error `401`:** see [Shared Error Responses](#401--not-authenticated)
+
+**Error `403`:** not a central admin, or the organisation is suspended.
+```json
+{ "detail": "You do not have permission to perform this action." }
+```
+
+**Error `404` — unknown slug, or the member belongs to another organisation:**
+```json
+{ "detail": "Not found." }
+```
+
+---
+
+### Suspend Member
+
+| | |
+|---|---|
+| **Method / URL** | `POST /api/orgs/members/{slug}/suspend/` |
+| **Auth** | Bearer access token — **central admin** of an active org |
+
+No request body. Sets `is_active` to `false`. The member cannot log in afterwards.
+You cannot suspend your own account.
+
+**Success `200`:**
+```json
+{ "detail": "User suspended." }
+```
+
+**Error `400` — already suspended:**
+```json
+{ "detail": "This user is already suspended." }
+```
+
+**Error `400` — cannot suspend self:**
+```json
+{ "detail": "You cannot suspend your own account." }
+```
+
+**Error `401`:** see [Shared Error Responses](#401--not-authenticated)
+
+**Error `403`:** not a central admin, or the organisation is suspended.
+```json
+{ "detail": "You do not have permission to perform this action." }
+```
+
+**Error `404` — unknown slug, or the member belongs to another organisation:**
+```json
+{ "detail": "Not found." }
+```
+
+---
+
+### Unsuspend Member
+
+| | |
+|---|---|
+| **Method / URL** | `POST /api/orgs/members/{slug}/unsuspend/` |
+| **Auth** | Bearer access token — **central admin** of an active org |
+
+No request body. Sets `is_active` to `true`.
+
+**Success `200`:**
+```json
+{ "detail": "User unsuspended." }
+```
+
+**Error `400` — not suspended:**
+```json
+{ "detail": "This user is not suspended." }
+```
+
+**Error `401`:** see [Shared Error Responses](#401--not-authenticated)
+
+**Error `403`:** not a central admin, or the organisation is suspended.
+```json
+{ "detail": "You do not have permission to perform this action." }
+```
+
+**Error `404` — unknown slug, or the member belongs to another organisation:**
+```json
+{ "detail": "Not found." }
+```
+
+---
+
+## Spaces
+
+Central admins create spaces and assign `space_incharge` members. Operation
+incharges may **GET** every space. Assigned space incharges may **GET** only
+their space. Warehouse managers receive `403`. Public identifier is **`slug`**.
+
+### List Spaces
+
+| | |
+|---|---|
+| **Method / URL** | `GET /api/orgs/spaces/` |
+| **Auth** | Bearer — central admin, operation incharge, or space incharge of an active org |
+
+Paginated. Optional `status=active` or `status=suspended`.
+
+**Success `200`:**
+```json
+{
+  "count": 1,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "slug": "north-wing",
+      "name": "North Wing",
+      "location": "Building A",
+      "is_active": true,
+      "created_at": "2026-09-17T10:00:00Z",
+      "updated_at": "2026-09-17T10:00:00Z"
+    }
+  ]
+}
+```
+
+**Error `400` — invalid status:**
+```json
+{ "status": ["Must be \"active\" or \"suspended\"."] }
+```
+
+**Error `401` / `403`:** as members.
+
+---
+
+### Create Space
+
+| | |
+|---|---|
+| **Method / URL** | `POST /api/orgs/spaces/` |
+| **Auth** | Bearer — **central admin** of an active org |
+
+`slug` is generated. Do not send incharges here.
+
+**Request:**
+```json
+{ "name": "North Wing", "location": "Building A" }
+```
+
+**Success `201`:** same object shape as a list item.
+
+**Error `400` — duplicate name in this org:**
+```json
+{ "name": ["A space with this name already exists."] }
+```
+
+---
+
+### Get / Update Space
+
+| | |
+|---|---|
+| **GET / PATCH** | `/api/orgs/spaces/{slug}/` |
+| **Auth GET** | Bearer — central admin, operation incharge, or the assigned space incharge |
+| **Auth PATCH** | Bearer — **central admin** |
+
+PATCH any subset of `name`, `location`. `slug` and `is_active` are not writable
+here (use suspend/unsuspend).
+
+**Success `200`:** space object (no `id`).
+
+**Error `404`:**
+```json
+{ "detail": "Not found." }
+```
+
+---
+
+### Suspend / Unsuspend Space
+
+| | |
+|---|---|
+| **POST** | `/api/orgs/spaces/{slug}/suspend/` and `.../unsuspend/` |
+| **Auth** | Bearer — **central admin** |
+
+No request body.
+
+**Success `200`:**
+```json
+{ "detail": "Space suspended." }
+```
+```json
+{ "detail": "Space unsuspended." }
+```
+
+**Error `400` — already in that state:**
+```json
+{ "detail": "This space is already suspended." }
+```
+
+---
+
+### List / Assign Space Incharges
+
+| | |
+|---|---|
+| **GET / POST** | `/api/orgs/spaces/{slug}/incharges/` |
+| **Auth GET** | Bearer — central admin, operation incharge, or assigned space incharge |
+| **Auth POST** | Bearer — **central admin** |
+
+GET is not paginated — an array of member objects. POST assigns one
+`space_incharge` member. Each space incharge may be on at most one space.
+
+**Request:**
+```json
+{ "member": "jane-doe" }
+```
+
+**Success `200`:** member object with `space: { "slug": "north-wing", "name": "North Wing" }`.
+
+**Error `400` — wrong role:**
+```json
+{ "member": ["Only a space incharge can be assigned to a space."] }
+```
+
+**Error `400` — already assigned:**
+```json
+{ "detail": "This member is already assigned to this space." }
+```
+
+---
+
+### Unassign Space Incharge
+
+| | |
+|---|---|
+| **Method / URL** | `POST /api/orgs/spaces/{slug}/incharges/{member}/unassign/` |
+| **Auth** | Bearer — **central admin** |
+
+No request body.
+
+**Success `200`:**
+```json
+{ "detail": "Space incharge unassigned." }
+```
+
+**Error `400` — not assigned:**
+```json
+{ "detail": "This member is not assigned to this space." }
+```
+
+---
+
+## Vendors
+
+Central admins, operation incharges, **and** warehouse managers manage vendors
+in **their own organisation**. Space incharges receive `403`. There is no
+delete — suspend instead. Public identifier is **`slug`**. Super admins
+receive `403`. Vendors are contact records only (no vendor login).
+
+### List Vendors
+
+| | |
+|---|---|
+| **Method / URL** | `GET /api/orgs/vendors/` |
+| **Auth** | Bearer — central admin, operation incharge, or warehouse manager of an active org |
+
+Paginated. Optional `status=active` or `status=suspended`.
+
+**Success `200`:**
+```json
+{
+  "count": 1,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "slug": "acme-supplies",
+      "name": "Acme Supplies",
+      "contact_name": "Jane Doe",
+      "phone": "+15551234",
+      "email": "jane@acme.com",
+      "address": "12 Warehouse Rd",
+      "gst": "22AAAAA0000A1Z5",
+      "website": "https://acme.example",
+      "is_active": true,
+      "created_at": "2026-09-16T10:00:00Z",
+      "updated_at": "2026-09-16T10:00:00Z"
+    }
+  ]
+}
+```
+
+**Error `400` — invalid status:**
+```json
+{ "status": ["Must be \"active\" or \"suspended\"."] }
+```
+
+**Error `401`:** see [Shared Error Responses](#401--not-authenticated)
+
+**Error `403`:**
+```json
+{ "detail": "You do not have permission to perform this action." }
+```
+
+---
+
+### Add Vendor
+
+| | |
+|---|---|
+| **Method / URL** | `POST /api/orgs/vendors/` |
+| **Auth** | Bearer — central admin, operation incharge, or warehouse manager of an active org |
+
+`slug` is generated. Required: `name`, `contact_name`, `phone`, `address`.
+Optional: `email`, `gst`, `website`.
+
+**Request:**
+```json
+{
+  "name": "Acme Supplies",
+  "contact_name": "Jane Doe",
+  "phone": "+15551234",
+  "address": "12 Warehouse Rd",
+  "email": "jane@acme.com",
+  "gst": "22AAAAA0000A1Z5",
+  "website": "https://acme.example"
+}
+```
+
+**Success `201`:** same object shape as a list item.
+
+**Error `400` — duplicate name in this org:**
+```json
+{ "name": ["A vendor with this name already exists."] }
+```
+
+**Error `401` / `403`:** as list.
+
+---
+
+### Get Vendor
+
+| | |
+|---|---|
+| **Method / URL** | `GET /api/orgs/vendors/{slug}/` |
+| **Auth** | Bearer — central admin, operation incharge, or warehouse manager of an active org |
+
+**Success `200`:** vendor object (no `id`).
+
+**Error `404`:**
+```json
+{ "detail": "Not found." }
+```
+
+---
+
+### Update Vendor
+
+| | |
+|---|---|
+| **Method / URL** | `PATCH /api/orgs/vendors/{slug}/` |
+| **Auth** | Bearer — central admin, operation incharge, or warehouse manager of an active org |
+
+Any subset of create fields. `slug`, `org`, and `is_active` are not writable
+here (use suspend/unsuspend).
+
+**Request:**
+```json
+{ "phone": "+1999" }
+```
+
+**Success `200`:** updated vendor object.
+
+**Error `400` — duplicate name:**
+```json
+{ "name": ["A vendor with this name already exists."] }
+```
+
+**Error `404`:**
+```json
+{ "detail": "Not found." }
+```
+
+---
+
+### Suspend Vendor
+
+| | |
+|---|---|
+| **Method / URL** | `POST /api/orgs/vendors/{slug}/suspend/` |
+| **Auth** | Bearer — central admin, operation incharge, or warehouse manager of an active org |
+
+No request body.
+
+**Success `200`:**
+```json
+{ "detail": "Vendor suspended." }
+```
+
+**Error `400` — already suspended:**
+```json
+{ "detail": "This vendor is already suspended." }
+```
+
+**Error `404`:**
+```json
+{ "detail": "Not found." }
+```
+
+---
+
+### Unsuspend Vendor
+
+| | |
+|---|---|
+| **Method / URL** | `POST /api/orgs/vendors/{slug}/unsuspend/` |
+| **Auth** | Bearer — central admin, operation incharge, or warehouse manager of an active org |
+
+No request body.
+
+**Success `200`:**
+```json
+{ "detail": "Vendor unsuspended." }
+```
+
+**Error `400` — not suspended:**
+```json
+{ "detail": "This vendor is not suspended." }
+```
+
+**Error `404`:**
+```json
+{ "detail": "Not found." }
+```
+
+---
+
+## Items
+
+Warehouse catalog at org level. `quantity_on_hand` is **not** writable on create
+or PATCH — stock changes only when a warehouse receipt is completed.
+
+List/retrieve: central admin, operation incharge, warehouse manager.
+Create/update/suspend: central admin and warehouse manager. Space incharges
+receive `403`. Public identifier is **`slug`**.
+
+### List Items
+
+| | |
+|---|---|
+| **Method / URL** | `GET /api/orgs/items/` |
+| **Auth** | Bearer — central admin, operation incharge, or warehouse manager |
+
+Paginated. Optional `status=active` or `status=suspended`.
+
+**Success `200`:**
+```json
+{
+  "count": 1,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "slug": "a4-paper",
+      "name": "A4 paper",
+      "sku": "PAP-A4",
+      "unit": "ream",
+      "quantity_on_hand": "0.000",
+      "is_active": true,
+      "created_at": "2026-09-17T10:00:00Z",
+      "updated_at": "2026-09-17T10:00:00Z"
+    }
+  ]
+}
+```
+
+**Error `400` — invalid status:**
+```json
+{ "status": ["Must be \"active\" or \"suspended\"."] }
+```
+
+---
+
+### Create Item
+
+| | |
+|---|---|
+| **Method / URL** | `POST /api/orgs/items/` |
+| **Auth** | Bearer — central admin or warehouse manager |
+
+`slug` is generated. `quantity_on_hand` is ignored if sent.
+
+**Request:**
+```json
+{ "name": "A4 paper", "sku": "PAP-A4", "unit": "ream" }
+```
+
+**Success `201`:** item object with `"quantity_on_hand": "0.000"`.
+
+**Error `400` — duplicate name:**
+```json
+{ "name": ["An item with this name already exists."] }
+```
+
+---
+
+### Get / Update Item
+
+| | |
+|---|---|
+| **GET / PATCH** | `/api/orgs/items/{slug}/` |
+| **Auth GET** | Bearer — central admin, operation incharge, or warehouse manager |
+| **Auth PATCH** | Bearer — central admin or warehouse manager |
+
+PATCH any subset of `name`, `sku`, `unit`. `quantity_on_hand` is not writable.
+
+**Success `200`:** item object (no `id`).
+
+---
+
+### Suspend / Unsuspend Item
+
+| | |
+|---|---|
+| **POST** | `/api/orgs/items/{slug}/suspend/` and `.../unsuspend/` |
+| **Auth** | Bearer — central admin or warehouse manager |
+
+**Success `200`:** `{ "detail": "Item suspended." }` / `{ "detail": "Item unsuspended." }`
+
+**Error `400`:** `{ "detail": "This item is already suspended." }`
+
+---
+
+## Purchases
+
+Record-keeping for offline deals. Vendors never log in. Public identifiers are
+**`slug`**. Ops-raised PRs auto-approve on submit. Space-raised PRs wait for
+ops approve / decline / request-revision.
+
+Roles:
+
+- Create/list PRs: assigned `space_incharge` (their space only),
+  `operation_incharge`, `central_admin`
+- RFQ, quotes, select lines, POs, QC, invoice, trail, verify: ops or central admin
+- Warehouse receipts: warehouse manager or central admin
+- Export: ops and central admin on PR/RFQ/PO/invoice; space incharge on **their**
+  PRs; warehouse on receipts
+
+### List / Create Purchase Requests
+
+| | |
+|---|---|
+| **Method / URL** | `GET / POST /api/orgs/purchase-requests/` |
+| **Auth** | Bearer — space incharge, operation incharge, or central admin |
+
+`lines` is required (min 1). Space incharges omit `space` (it is implied). Ops
+may send `space` or omit/`null`. `item` on a line is optional.
+
+**Request:**
+```json
+{
+  "title": "Q3 pantry restock",
+  "space": "north-wing",
+  "notes": "",
+  "lines": [
+    { "description": "A4 paper", "quantity": "10", "unit": "ream", "item": "a4-paper" },
+    { "description": "Blue pens", "quantity": "50", "unit": "pcs" }
+  ]
+}
+```
+
+**Success `201`:**
+```json
+{
+  "slug": "q3-pantry-restock",
+  "title": "Q3 pantry restock",
+  "status": "draft",
+  "notes": "",
+  "space": "north-wing",
+  "created_by": "op-lead",
+  "review_reason": "",
+  "lines": [
+    {
+      "slug": "a4-paper",
+      "description": "A4 paper",
+      "quantity": "10.000",
+      "unit": "ream",
+      "item": "a4-paper",
+      "awarded_vendor": null
+    }
+  ],
+  "created_at": "2026-09-17T10:00:00Z",
+  "updated_at": "2026-09-17T10:00:00Z"
+}
+```
+
+GET is paginated; list items use the same shape (nested `lines`).
+
+**Error `400` — empty lines:**
+```json
+{ "lines": ["A purchase request must include at least one line."] }
+```
+
+**Error `400` — unassigned space incharge:**
+```json
+{ "space": ["Assign this space incharge to a space before creating a request."] }
+```
+
+---
+
+### Get / Patch Purchase Request
+
+| | |
+|---|---|
+| **GET / PATCH** | `/api/orgs/purchase-requests/{slug}/` |
+| **Auth** | Bearer — same as list; space incharge scoped to their space |
+
+PATCH may replace `title`, `notes`, and the full `lines` array while `draft` or
+`revision_requested`.
+
+**Error `400`:**
+```json
+{ "detail": "This action is not allowed in the current status." }
+```
+
+---
+
+### Submit / Approve / Decline / Request Revision
+
+| | |
+|---|---|
+| **POST** | `/api/orgs/purchase-requests/{slug}/submit/` |
+| **Auth submit** | Creator, or ops/central admin |
+| **POST approve** | `/api/orgs/purchase-requests/{slug}/approve/` — ops or central admin |
+| **POST decline** | `/api/orgs/purchase-requests/{slug}/decline/` — body `{ "reason": "..." }` |
+| **POST revision** | `/api/orgs/purchase-requests/{slug}/request-revision/` — body `{ "reason": "..." }` |
+
+Submit on an ops-raised PR returns `"status": "approved"`. Space-raised submit
+returns `"status": "submitted"`. Decline archives (`declined`).
+
+**Error `400` — missing reason:**
+```json
+{ "reason": ["A reason is required."] }
+```
+
+---
+
+### Process Trail
+
+| | |
+|---|---|
+| **Method / URL** | `GET /api/orgs/purchase-requests/{slug}/trail/` |
+| **Auth** | Bearer — operation incharge or central admin |
+
+Ordered events. Each has `action`, `actor_slug`, `actor_user_type`,
+`content_hash`, `signature`, `prev_hash` (`"genesis"` on the first event).
+
+**Success `200`:** array of event objects.
+
+---
+
+### Export Purchase Request
+
+| | |
+|---|---|
+| **Method / URL** | `GET /api/orgs/purchase-requests/{slug}/export/?format=pdf` or `xlsx` |
+| **Auth** | Bearer — ops/central admin, or space incharge for their own PRs |
+
+`format` is required. PDF is `application/pdf` with wet-ink signature boxes.
+Excel starts with ZIP magic (`PK`).
+
+**Error `400`:**
+```json
+{ "format": ["Must be \"pdf\" or \"xlsx\"."] }
+```
+
+---
+
+### RFQs
+
+| | |
+|---|---|
+| **GET / POST** | `/api/orgs/rfqs/` |
+| **GET detail** | `/api/orgs/rfqs/{slug}/` |
+| **Auth** | Bearer — operation incharge or central admin |
+
+POST from an **approved** PR. No emails are sent.
+
+**Request:**
+```json
+{
+  "purchase_request": "q3-pantry-restock",
+  "vendor_slugs": ["acme-supplies", "office-mart"]
+}
+```
+
+**Success `201`:** RFQ with `vendors[]` and `lines[]` (each line includes competing
+`quotes: [{ "vendor", "unit_price" }]`).
+
+**Error `400` — no vendors:**
+```json
+{ "vendor_slugs": ["Choose at least one existing active vendor, or add vendors first."] }
+```
+
+**Error `400` — PR not approved:**
+```json
+{ "purchase_request": ["The purchase request must be approved first."] }
+```
+
+Further RFQ actions (all ops/central admin):
+
+| Method | URL | Body |
+|---|---|---|
+| POST | `/api/orgs/rfqs/{slug}/vendors/` | `{ "vendor": "<slug>" }` |
+| POST | `/api/orgs/rfqs/{slug}/vendors/{vendor_slug}/reject/` | `{ "reason": "..." }` |
+| POST | `/api/orgs/rfqs/{slug}/quotes/` | `{ "vendor": "<slug>", "lines": [{ "line": "<pr-line-slug>", "unit_price": "12.50" }] }` |
+| POST | `/api/orgs/rfqs/{slug}/request-revision/` | empty — RFQ back to `preparing` |
+| POST | `/api/orgs/rfqs/{slug}/select-lines/` | `{ "selections": [{ "line": "<slug>", "vendor": "<slug>" }] }` |
+| POST | `/api/orgs/rfqs/{slug}/purchase-orders/` | `{ "vendor": "<slug>", "create_purchase_order": true }` |
+| GET | `/api/orgs/rfqs/{slug}/export/?format=pdf\|xlsx` | quote comparison |
+
+**Error `400` — select a vendor with no quote on that line:**
+```json
+{ "vendor": ["This vendor has no recorded quote for that line."] }
+```
+
+**Error `400` — line already awarded:**
+```json
+{ "line": ["This line is already awarded."] }
+```
+
+`create_purchase_order: false` still creates a PO row with `"is_new_order": false`
+so QC and warehouse have a target.
+
+---
+
+### Purchase Orders
+
+| | |
+|---|---|
+| **GET list / detail** | `/api/orgs/purchase-orders/` and `/api/orgs/purchase-orders/{slug}/` |
+| **Auth** | Bearer — operation incharge or central admin |
+
+One PO per winning vendor. **Success `200`:** `{ slug, vendor, purchase_request,
+status, is_new_order, lines[], created_at, updated_at }`.
+
+**Quality check** `POST /api/orgs/purchase-orders/{slug}/quality-check/`
+
+```json
+{ "passed": true, "reason": "", "next": "return" }
+```
+
+On fail, `reason` is required. `next` is `return` (stay on vendor),
+`reorder_same`, or `choose_vendors` (unaward those lines). Pass creates a
+pending warehouse receipt.
+
+**Invoice** `POST /api/orgs/purchase-orders/{slug}/invoice/` (after QC pass)
+
+```json
+{ "notes": "Filed offline", "document_urls": ["https://example.com/inv.pdf"] }
+```
+
+**Success `200`:** `{ slug, notes, document_urls, status: "pending_payment", created_at }`
+
+Exports: `/api/orgs/purchase-orders/{slug}/export/?format=pdf|xlsx` and
+`/api/orgs/purchase-orders/{slug}/invoice/export/?format=pdf|xlsx`.
+
+---
+
+### Warehouse Receipts
+
+| | |
+|---|---|
+| **GET list / detail** | `/api/orgs/warehouse/receipts/` and `.../{slug}/` |
+| **Auth** | Bearer — warehouse manager or central admin |
+
+Optional `?status=pending` or `completed`.
+
+**Complete** `POST /api/orgs/warehouse/receipts/{slug}/complete/` — every receipt
+line must be included. Mix `new_item` and `add_to_existing` per line.
+
+```json
+{
+  "lines": [
+    { "line": "a4-receipt-line", "action": "new_item", "name": "A4 paper stock", "unit": "ream" },
+    { "line": "pens-receipt-line", "action": "add_to_existing", "item": "blue-pens" }
+  ]
+}
+```
+
+**Success `200`:** receipt with `"status": "completed"` and `item` slugs filled.
+
+**Error `400`:**
+```json
+{ "lines": ["Every receipt line must be included."] }
+```
+
+Export: `GET /api/orgs/warehouse/receipts/{slug}/export/?format=pdf|xlsx`.
+
+---
+
+### Verify Process Event
+
+| | |
+|---|---|
+| **Method / URL** | `POST /api/orgs/process-events/verify/` |
+| **Auth** | Bearer — operation incharge or central admin |
+
+```json
+{ "content_hash": "<sha256 hex>", "signature": "<hmac hex>" }
+```
+
+**Success `200`:**
+```json
+{ "valid": true }
+```
+
+Tampered signatures return `{ "valid": false }`.
 
 ---
 
@@ -842,3 +1819,7 @@ You will see the full email body including the password reset or Get Started lin
 |---|---|---|
 | 1.0.0 | 2026-09-08 | Initial release |
 | 1.1.0 | 2026-09-14 | Full success/error payloads per endpoint; register removed |
+| 1.2.0 | 2026-09-15 | Org member API: list/add/resend welcome (`/api/orgs/members/`); `warehouse_manager` role |
+| 1.3.0 | 2026-09-16 | Suspend / unsuspend members; `?status=` filter; login `400` for suspended accounts |
+| 1.4.0 | 2026-09-16 | Vendor API: list/add/get/update/suspend (`/api/orgs/vendors/`) |
+| 1.5.0 | 2026-09-17 | Spaces, `operation_incharge` / `space_incharge`, item catalog, purchase flow (RFQ, per-line award, PO, QC, warehouse, HMAC trail, PDF/Excel) |
