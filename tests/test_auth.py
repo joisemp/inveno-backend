@@ -6,6 +6,7 @@ forgot-password flow.  Registration tests have been removed — accounts are
 created through the org-registration service (see tests/organizations/).
 """
 import pytest
+from django.conf import settings
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
@@ -17,6 +18,19 @@ LOGOUT_URL = "/api/auth/logout/"
 CHANGE_PASSWORD_URL = "/api/auth/password/change/"
 PASSWORD_RESET_URL = "/api/auth/password/reset/"
 REGISTER_URL = "/api/auth/register/"  # should be gone (404 / 405)
+
+REFRESH_COOKIE = settings.REFRESH_TOKEN_COOKIE_NAME
+
+
+def _refresh_cookie_value(response):
+    """Return the refresh cookie string from a response, if set."""
+    cookie = response.cookies.get(REFRESH_COOKIE)
+    return cookie.value if cookie else None
+
+
+def _cookie_is_httponly(response):
+    cookie = response.cookies.get(REFRESH_COOKIE)
+    return cookie is not None and cookie.get("httponly", False)
 
 
 @pytest.mark.django_db
@@ -41,7 +55,9 @@ class TestLogin:
         )
         assert response.status_code == 200
         assert "access" in response.data
-        assert "refresh" in response.data
+        assert "refresh" not in response.data
+        assert _refresh_cookie_value(response)
+        assert _cookie_is_httponly(response)
 
     def test_login_returns_jwt_claims(self, api_client, test_user):
         """JWT payload should include user_type, org_id, org_suffix."""
@@ -52,10 +68,8 @@ class TestLogin:
             LOGIN_URL, {"email": test_user.email, "password": "StrongPass123!"}
         )
         assert response.status_code == 200
-        # Decode payload (middle part of access token)
         access = response.data["access"]
         payload_b64 = access.split(".")[1]
-        # Add padding if needed
         payload_b64 += "=" * (4 - len(payload_b64) % 4)
         payload = json.loads(base64.b64decode(payload_b64))
         assert "user_type" in payload
@@ -122,10 +136,9 @@ class TestLogin:
             {"email": warehouse_manager.email, "password": "StrongPass123!"},
         )
         assert login.status_code == 200
-        refresh = login.data["refresh"]
         warehouse_manager.is_active = False
         warehouse_manager.save()
-        response = api_client.post(TOKEN_REFRESH_URL, {"refresh": refresh})
+        response = api_client.post(TOKEN_REFRESH_URL)
         assert response.status_code == 401
 
     def test_superuser_login_unaffected_by_inactive_org(self, api_client, superuser):
@@ -142,10 +155,31 @@ class TestTokenRefresh:
         login = api_client.post(
             LOGIN_URL, {"email": test_user.email, "password": "StrongPass123!"}
         )
-        refresh = login.data["refresh"]
-        response = api_client.post(TOKEN_REFRESH_URL, {"refresh": refresh})
+        assert login.status_code == 200
+        response = api_client.post(TOKEN_REFRESH_URL)
         assert response.status_code == 200
         assert "access" in response.data
+        assert "refresh" not in response.data
+        assert _refresh_cookie_value(response)
+
+    def test_refresh_without_cookie_is_401(self, api_client):
+        response = api_client.post(TOKEN_REFRESH_URL)
+        assert response.status_code == 401
+
+    def test_refresh_rotates_and_blacklists_old_cookie(self, api_client, test_user):
+        login = api_client.post(
+            LOGIN_URL, {"email": test_user.email, "password": "StrongPass123!"}
+        )
+        old_refresh = _refresh_cookie_value(login)
+
+        rotated = api_client.post(TOKEN_REFRESH_URL)
+        assert rotated.status_code == 200
+        new_refresh = _refresh_cookie_value(rotated)
+        assert new_refresh != old_refresh
+
+        api_client.cookies[REFRESH_COOKIE] = old_refresh
+        stale = api_client.post(TOKEN_REFRESH_URL)
+        assert stale.status_code == 401
 
 
 @pytest.mark.django_db
@@ -198,16 +232,19 @@ class TestLogout:
         login = api_client.post(
             LOGIN_URL, {"email": test_user.email, "password": "StrongPass123!"}
         )
-        refresh = login.data["refresh"]
-        access = login.data["access"]
+        assert login.status_code == 200
+        old_refresh = _refresh_cookie_value(login)
 
-        api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {access}")
-        logout_response = api_client.post(LOGOUT_URL, {"refresh": refresh})
+        logout_response = api_client.post(LOGOUT_URL)
         assert logout_response.status_code == 200
 
-        # Blacklisted refresh token must not be reusable
-        refresh_response = api_client.post(TOKEN_REFRESH_URL, {"refresh": refresh})
+        api_client.cookies[REFRESH_COOKIE] = old_refresh
+        refresh_response = api_client.post(TOKEN_REFRESH_URL)
         assert refresh_response.status_code == 401
+
+    def test_logout_without_cookie_still_succeeds(self, api_client):
+        response = api_client.post(LOGOUT_URL)
+        assert response.status_code == 200
 
 
 @pytest.mark.django_db
@@ -242,3 +279,25 @@ class TestChangePassword:
         }
         response = auth_client.post(CHANGE_PASSWORD_URL, payload)
         assert response.status_code == 400
+
+    def test_change_password_revokes_refresh_cookie(self, api_client, test_user):
+        login = api_client.post(
+            LOGIN_URL, {"email": test_user.email, "password": "StrongPass123!"}
+        )
+        access = login.data["access"]
+        old_refresh = _refresh_cookie_value(login)
+
+        api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {access}")
+        change = api_client.post(
+            CHANGE_PASSWORD_URL,
+            {
+                "old_password": "StrongPass123!",
+                "new_password": "NewStrong456!",
+                "new_password2": "NewStrong456!",
+            },
+        )
+        assert change.status_code == 200
+
+        api_client.cookies[REFRESH_COOKIE] = old_refresh
+        refresh = api_client.post(TOKEN_REFRESH_URL)
+        assert refresh.status_code == 401

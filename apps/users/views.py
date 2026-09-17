@@ -19,6 +19,7 @@ organisation registration flow.
 """
 import logging
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
 from django.core.mail import send_mail
@@ -32,6 +33,7 @@ from drf_spectacular.utils import (
     extend_schema_view,
 )
 from rest_framework import generics, permissions, status
+from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -44,14 +46,17 @@ from rest_framework_simplejwt.views import (
 from apps.common.openapi import (
     EmptySerializer,
     LoginRequestSerializer,
-    LogoutRequestSerializer,
     TokenPairSerializer,
-    TokenRefreshRequestSerializer,
     TokenVerifyRequestSerializer,
     detail_response,
     error_responses,
 )
 
+from .auth_cookies import (
+    attach_rotated_refresh_cookie,
+    blacklist_user_refresh_tokens,
+    clear_refresh_cookie,
+)
 from .serializers import (
     ChangePasswordSerializer,
     CustomTokenRefreshSerializer,
@@ -144,58 +149,35 @@ class MeView(generics.RetrieveUpdateAPIView):
 
 @extend_schema(
     tags=["Auth"],
-    summary="Log out (blacklist refresh token)",
-    request=LogoutRequestSerializer,
+    summary="Log out (blacklist refresh cookie)",
+    request=EmptySerializer,
     responses={
         200: detail_response(
-            "Refresh token blacklisted.",
+            "Refresh cookie cleared; token blacklisted when present.",
             "Logged out",
             {"detail": "Successfully logged out."},
         ),
-        400: OpenApiResponse(
-            response=OpenApiTypes.OBJECT,
-            description="Missing or invalid refresh token.",
-            examples=[
-                OpenApiExample(
-                    "Missing refresh",
-                    value={"detail": "Refresh token is required."},
-                    response_only=True,
-                    status_codes=["400"],
-                ),
-                OpenApiExample(
-                    "Already blacklisted",
-                    value={"detail": "Invalid or already blacklisted token."},
-                    response_only=True,
-                    status_codes=["400"],
-                ),
-            ],
-        ),
-        **error_responses(401),
     },
 )
 class LogoutView(generics.GenericAPIView):
-    """Blacklist the refresh token to log out."""
+    """Blacklist the httpOnly refresh cookie and clear it from the browser."""
 
-    serializer_class = LogoutRequestSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
+    parser_classes = [JSONParser]
 
     def post(self, request, *args, **kwargs):
-        try:
-            refresh_token = request.data.get("refresh")
-            if not refresh_token:
-                return Response(
-                    {"detail": "Refresh token is required."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            token = RefreshToken(refresh_token)
-            token.blacklist()
-            logger.info("User logged out: %s", request.user.email)
-            return Response({"detail": "Successfully logged out."})
-        except Exception:
-            return Response(
-                {"detail": "Invalid or already blacklisted token."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        refresh_token = request.COOKIES.get(settings.REFRESH_TOKEN_COOKIE_NAME)
+        response = Response({"detail": "Successfully logged out."})
+        if refresh_token:
+            try:
+                token = RefreshToken(refresh_token)
+                token.blacklist()
+                if request.user.is_authenticated:
+                    logger.info("User logged out: %s", request.user.email)
+            except Exception:
+                pass
+        clear_refresh_cookie(response)
+        return response
 
 
 # ---------------------------------------------------------------------------
@@ -249,7 +231,10 @@ class ChangePasswordView(generics.GenericAPIView):
         request.user.set_password(serializer.validated_data["new_password"])
         request.user.save()
         logger.info("Password changed for user: %s", request.user.email)
-        return Response({"detail": "Password updated successfully."})
+        response = Response({"detail": "Password updated successfully."})
+        blacklist_user_refresh_tokens(request.user)
+        clear_refresh_cookie(response)
+        return response
 
 
 # ---------------------------------------------------------------------------
@@ -471,14 +456,14 @@ class PasswordSetView(generics.GenericAPIView):
     responses={
         200: OpenApiResponse(
             response=TokenPairSerializer,
-            description="Access (15 min) and refresh (7 days) tokens.",
+            description=(
+                "Access token (15 min) in JSON. Refresh token (7 days) is set as "
+                "an httpOnly cookie (inveno_refresh)."
+            ),
             examples=[
                 OpenApiExample(
-                    "Tokens",
-                    value={
-                        "access": "eyJ0eXAiOiJKV1QiLCJhbGci...",
-                        "refresh": "eyJ0eXAiOiJKV1QiLCJhbGci...",
-                    },
+                    "Access token",
+                    value={"access": "eyJ0eXAiOiJKV1QiLCJhbGci..."},
                     response_only=True,
                     status_codes=["200"],
                 )
@@ -537,32 +522,46 @@ class PasswordSetView(generics.GenericAPIView):
     },
 )
 class LoginView(TokenObtainPairView):
-    """Email + password → JWT pair. Uses CustomTokenObtainPairSerializer."""
+    """Email + password → access JSON + httpOnly refresh cookie."""
+
+    def finalize_response(self, request, response, *args, **kwargs):
+        response = super().finalize_response(request, response, *args, **kwargs)
+        return attach_rotated_refresh_cookie(response)
 
 
 @extend_schema(
     tags=["Auth"],
     summary="Refresh access token",
-    request=TokenRefreshRequestSerializer,
+    request=EmptySerializer,
     responses={
         200: OpenApiResponse(
             response=TokenPairSerializer,
-            description="New access token; refresh is rotated.",
-        ),
-        400: field_error_response(
-            [
+            description=(
+                "New access token in JSON. Rotated refresh token is set as "
+                "an httpOnly cookie."
+            ),
+            examples=[
                 OpenApiExample(
-                    "Missing refresh",
-                    value={"refresh": ["This field is required."]},
+                    "Access token",
+                    value={"access": "eyJ0eXAiOiJKV1QiLCJhbGci..."},
                     response_only=True,
-                    status_codes=["400"],
+                    status_codes=["200"],
                 )
-            ]
+            ],
         ),
         401: OpenApiResponse(
             response=OpenApiTypes.OBJECT,
-            description="Invalid, expired, or blacklisted refresh token.",
+            description="Missing, invalid, expired, or blacklisted refresh cookie.",
             examples=[
+                OpenApiExample(
+                    "Missing cookie",
+                    value={
+                        "detail": "Refresh cookie is missing.",
+                        "code": "token_not_valid",
+                    },
+                    response_only=True,
+                    status_codes=["401"],
+                ),
                 OpenApiExample(
                     "Invalid refresh",
                     value={
@@ -571,15 +570,20 @@ class LoginView(TokenObtainPairView):
                     },
                     response_only=True,
                     status_codes=["401"],
-                )
+                ),
             ],
         ),
     },
 )
 class TokenRefreshView(SimpleJWTTokenRefreshView):
-    """Rotate access (and refresh) tokens. Inactive users are rejected."""
+    """Rotate access token; refresh is read from the httpOnly cookie."""
 
     serializer_class = CustomTokenRefreshSerializer
+    parser_classes = [JSONParser]
+
+    def finalize_response(self, request, response, *args, **kwargs):
+        response = super().finalize_response(request, response, *args, **kwargs)
+        return attach_rotated_refresh_cookie(response)
 
 
 @extend_schema(
