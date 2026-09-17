@@ -2,8 +2,8 @@
 Organization model.
 
 An Organisation is registered by a super admin.  It may have one or more
-org users (central admins and warehouse managers), represented by
-UserProfile rows with org=<this organization>.
+org users and Spaces.  Org users are UserProfile rows with org=<this
+organization>.
 
 Fields
 ------
@@ -64,3 +64,43 @@ class Organization(UUIDModel, SlugMixin):
         if self.org_suffix:
             self.org_suffix = self.org_suffix.lower()
         super().save(*args, **kwargs)
+
+
+class Space(UUIDModel, SlugMixin):
+    """
+    A location or unit inside an organisation (kitchen, wing, site).
+
+    Central admins create spaces and assign space_incharge members to them.
+    Public API identifier is slug (from name), never UUID.
+    """
+
+    org = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="spaces",
+    )
+    name = models.CharField(max_length=255)
+    location = models.CharField(max_length=255, blank=True)
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Inactive spaces cannot receive new purchase requests.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Space"
+        verbose_name_plural = "Spaces"
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["org", "name"],
+                name="organizations_space_org_name_uniq",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.org.org_suffix})"
+
+    def get_slug_source(self) -> str:
+        return self.name

@@ -1,0 +1,154 @@
+"""Purchase-flow URLs, mounted under /api/orgs/."""
+from django.urls import path
+
+from apps.purchases.views import (
+    InvoiceExportView,
+    ProcessEventVerifyView,
+    PurchaseOrderDetailView,
+    PurchaseOrderExportView,
+    PurchaseOrderInvoiceView,
+    PurchaseOrderListView,
+    PurchaseOrderQCView,
+    PurchaseRequestApproveView,
+    PurchaseRequestDeclineView,
+    PurchaseRequestDetailView,
+    PurchaseRequestExportView,
+    PurchaseRequestListCreateView,
+    PurchaseRequestRevisionView,
+    PurchaseRequestSubmitView,
+    PurchaseRequestTrailView,
+    RFQAddVendorView,
+    RFQCreatePOView,
+    RFQDetailView,
+    RFQExportView,
+    RFQListCreateView,
+    RFQQuoteView,
+    RFQRejectVendorView,
+    RFQRevisionView,
+    RFQSelectLinesView,
+    WarehouseReceiptCompleteView,
+    WarehouseReceiptDetailView,
+    WarehouseReceiptExportView,
+    WarehouseReceiptListView,
+)
+
+app_name = "purchases"
+
+urlpatterns = [
+    path(
+        "purchase-requests/",
+        PurchaseRequestListCreateView.as_view(),
+        name="pr-list",
+    ),
+    path(
+        "purchase-requests/<slug:slug>/",
+        PurchaseRequestDetailView.as_view(),
+        name="pr-detail",
+    ),
+    path(
+        "purchase-requests/<slug:slug>/submit/",
+        PurchaseRequestSubmitView.as_view(),
+        name="pr-submit",
+    ),
+    path(
+        "purchase-requests/<slug:slug>/approve/",
+        PurchaseRequestApproveView.as_view(),
+        name="pr-approve",
+    ),
+    path(
+        "purchase-requests/<slug:slug>/decline/",
+        PurchaseRequestDeclineView.as_view(),
+        name="pr-decline",
+    ),
+    path(
+        "purchase-requests/<slug:slug>/request-revision/",
+        PurchaseRequestRevisionView.as_view(),
+        name="pr-revision",
+    ),
+    path(
+        "purchase-requests/<slug:slug>/trail/",
+        PurchaseRequestTrailView.as_view(),
+        name="pr-trail",
+    ),
+    path(
+        "purchase-requests/<slug:slug>/export/",
+        PurchaseRequestExportView.as_view(),
+        name="pr-export",
+    ),
+    path("rfqs/", RFQListCreateView.as_view(), name="rfq-list"),
+    path("rfqs/<slug:slug>/", RFQDetailView.as_view(), name="rfq-detail"),
+    path("rfqs/<slug:slug>/vendors/", RFQAddVendorView.as_view(), name="rfq-add-vendor"),
+    path(
+        "rfqs/<slug:slug>/vendors/<slug:vendor_slug>/reject/",
+        RFQRejectVendorView.as_view(),
+        name="rfq-reject-vendor",
+    ),
+    path("rfqs/<slug:slug>/quotes/", RFQQuoteView.as_view(), name="rfq-quotes"),
+    path(
+        "rfqs/<slug:slug>/request-revision/",
+        RFQRevisionView.as_view(),
+        name="rfq-revision",
+    ),
+    path(
+        "rfqs/<slug:slug>/select-lines/",
+        RFQSelectLinesView.as_view(),
+        name="rfq-select",
+    ),
+    path(
+        "rfqs/<slug:slug>/purchase-orders/",
+        RFQCreatePOView.as_view(),
+        name="rfq-create-po",
+    ),
+    path("rfqs/<slug:slug>/export/", RFQExportView.as_view(), name="rfq-export"),
+    path("purchase-orders/", PurchaseOrderListView.as_view(), name="po-list"),
+    path(
+        "purchase-orders/<slug:slug>/",
+        PurchaseOrderDetailView.as_view(),
+        name="po-detail",
+    ),
+    path(
+        "purchase-orders/<slug:slug>/quality-check/",
+        PurchaseOrderQCView.as_view(),
+        name="po-qc",
+    ),
+    path(
+        "purchase-orders/<slug:slug>/invoice/",
+        PurchaseOrderInvoiceView.as_view(),
+        name="po-invoice",
+    ),
+    path(
+        "purchase-orders/<slug:slug>/export/",
+        PurchaseOrderExportView.as_view(),
+        name="po-export",
+    ),
+    path(
+        "purchase-orders/<slug:slug>/invoice/export/",
+        InvoiceExportView.as_view(),
+        name="invoice-export",
+    ),
+    path(
+        "warehouse/receipts/",
+        WarehouseReceiptListView.as_view(),
+        name="receipt-list",
+    ),
+    path(
+        "warehouse/receipts/<slug:slug>/",
+        WarehouseReceiptDetailView.as_view(),
+        name="receipt-detail",
+    ),
+    path(
+        "warehouse/receipts/<slug:slug>/complete/",
+        WarehouseReceiptCompleteView.as_view(),
+        name="receipt-complete",
+    ),
+    path(
+        "warehouse/receipts/<slug:slug>/export/",
+        WarehouseReceiptExportView.as_view(),
+        name="receipt-export",
+    ),
+    path(
+        "process-events/verify/",
+        ProcessEventVerifyView.as_view(),
+        name="event-verify",
+    ),
+]

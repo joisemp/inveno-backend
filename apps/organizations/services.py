@@ -4,8 +4,8 @@ Organisation registration and member-provisioning services.
 create_org_with_central_admin() registers a new Organisation together with
 its first central admin.
 
-create_org_user() adds a user to an existing org (central admin or warehouse
-manager) and optionally sends the welcome / get-started email.
+create_org_user() adds a user to an existing org (any org-assignable role)
+and optionally sends the welcome / get-started email.
 
 resend_org_user_welcome() re-sends that email for a member who has not set a
 password yet.
@@ -55,7 +55,8 @@ def create_org_user(
     welcome-email get-started link (POST /api/auth/password/set/).
 
     *user_type* must be one of UserProfile.ORG_ASSIGNABLE_TYPES
-    (central_admin or warehouse_manager).  super_admin is rejected.
+    (central_admin, operation_incharge, warehouse_manager, space_incharge).
+    super_admin is rejected.
 
     Returns the User.
 

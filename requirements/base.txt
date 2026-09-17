@@ -35,5 +35,9 @@ whitenoise==6.8.2
 # Filtering
 django-filter==24.3
 
+# Exports
+reportlab==4.2.5
+openpyxl==3.1.5
+
 # Logging
 colorlog==6.9.0

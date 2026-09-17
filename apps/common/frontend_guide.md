@@ -17,19 +17,24 @@ central admin in Django Admin. Central admins then add further org users via
 | `user_type` | Staff? | `org` | What they can do in the UI |
 |---|---|---|---|
 | `super_admin` | yes | always `null` | Platform admin; no org-scoped screens |
-| `central_admin` | no | required | Org-scoped app, including member management; blocked if `org.is_active` is false |
-| `warehouse_manager` | no | required | Org-scoped app including vendors; **cannot** manage members; blocked if `org.is_active` is false |
+| `central_admin` | no | required | Org owner: members, spaces, incharge assignment, vendors, catalog, full purchase override |
+| `operation_incharge` | no | required | Purchase flow (create PRs with optional space; RFQ/quotes/PO/QC/invoice/export). Cannot manage members or spaces |
+| `warehouse_manager` | no | required | Vendors, item catalog writes, warehouse receipts. Cannot manage members or run RFQ/PO |
+| `space_incharge` | no | required | GET their assigned space; raise/edit PRs for that space only. No vendors or catalog |
 
 Use `GET /api/auth/me/` as the source of truth for routing. JWT claims are a
-hint for the first paint only.
+hint for the first paint only. For space incharges, `profile.space` is
+`{ slug, name }` when assigned, otherwise `null` (they cannot submit PRs yet).
 
 ---
 
 ## 2. Onboarding
 
 1. Super admin creates the org + first central admin in `/admin/`.
-2. A central admin may add more users (`central_admin` or `warehouse_manager`)
-   with `POST /api/orgs/members/`.
+2. A central admin may add more users (`central_admin`, `operation_incharge`,
+   `warehouse_manager`, or `space_incharge`) with `POST /api/orgs/members/`.
+   Space is **not** sent on create. After adding a `space_incharge`, assign them
+   with `POST /api/orgs/spaces/{slug}/incharges/`.
 3. The API emails a Get Started link: `{FRONTEND_URL}/get-started?uid=...&token=...`
    (`FRONTEND_URL` defaults to `http://localhost:5173`).
 4. The Get Started page calls `POST /api/auth/password/set/` (public, 7-day
@@ -76,8 +81,8 @@ Access-token payload (after the standard `exp` / `token_type` fields):
 
 For `super_admin`, `org_id` and `org_suffix` are `null`.
 
-Still call `GET /api/auth/me/` after login. `/me` includes names, phone, and
-`org.is_active`, which claims do not.
+Still call `GET /api/auth/me/` after login. `/me` includes names, phone,
+`profile.space`, and `org.is_active`, which claims do not.
 
 ---
 
@@ -89,7 +94,14 @@ Still call `GET /api/auth/me/` after login. `/me` includes names, phone, and
 | `POST /api/auth/login/`, refresh, verify, password set/reset | Public (throttled 10/min) |
 | Most `/api/auth/*` | `IsAuthenticated` (Bearer) |
 | `GET/POST /api/orgs/members/`, resend welcome, suspend, unsuspend | Central admin of an active org |
-| `/api/orgs/vendors/` (list/add/get/patch/suspend) | Central admin or warehouse manager of an active org |
+| `POST /api/orgs/spaces/`, PATCH/suspend, assign incharges | Central admin of an active org |
+| `GET /api/orgs/spaces/` | Central admin, operation incharge, or assigned space incharge |
+| `/api/orgs/vendors/` (list/add/get/patch/suspend) | Central admin, operation incharge, or warehouse manager |
+| `GET /api/orgs/items/` | Central admin, operation incharge, or warehouse manager |
+| `POST/PATCH /api/orgs/items/` | Central admin or warehouse manager |
+| `GET/POST /api/orgs/purchase-requests/` | Space incharge (assigned space), operation incharge, or central admin |
+| RFQ / PO / QC / invoice / trail / verify | Operation incharge or central admin |
+| `/api/orgs/warehouse/receipts/` | Warehouse manager or central admin |
 | `/api/docs/`, `/api/docs/frontend/`, `/api/redoc/`, `/api/schema/` | Staff session or staff JWT |
 
 If the org is suspended, login returns `400`:
@@ -112,9 +124,13 @@ If the **account** is suspended, login returns `400`:
 }
 ```
 
-Gate org UI with `central_admin` **or** `warehouse_manager` and `org?.is_active`.
-Gate **member management** (list/add/resend) with `profile.user_type === "central_admin"`.
-Vendor screens are allowed for both org roles.
+Gate org UI with any org-assignable `user_type` and `org?.is_active`.
+Gate **member management and space assignment** with
+`profile.user_type === "central_admin"`.
+Vendor screens: `central_admin`, `operation_incharge`, or `warehouse_manager`
+— **not** `space_incharge`.
+Space incharge PR screens: only when `profile.space` is set.
+Warehouse inbound: `warehouse_manager` or `central_admin`.
 A `403` from any authenticated route means the user is logged in but not allowed
 — do not try to refresh the token for that.
 
@@ -172,10 +188,24 @@ Install the HTTP client: `npm i axios`.
 ### Types
 
 ```ts
-export type UserType = "super_admin" | "central_admin" | "warehouse_manager";
-export type OrgAssignableUserType = "central_admin" | "warehouse_manager";
+export type UserType =
+  | "super_admin"
+  | "central_admin"
+  | "operation_incharge"
+  | "warehouse_manager"
+  | "space_incharge";
+export type OrgAssignableUserType =
+  | "central_admin"
+  | "operation_incharge"
+  | "warehouse_manager"
+  | "space_incharge";
 
-export const ORG_USER_TYPES: UserType[] = ["central_admin", "warehouse_manager"];
+export const ORG_USER_TYPES: UserType[] = [
+  "central_admin",
+  "operation_incharge",
+  "warehouse_manager",
+  "space_incharge",
+];
 
 export type TokenPair = {
   access: string;
@@ -200,6 +230,7 @@ export type MeResponse = {
     last_name: string;
     phone: string;
     full_name: string;
+    space: { slug: string; name: string } | null;
   } | null;
   org: {
     id: string;
@@ -222,6 +253,7 @@ export type OrgMember = {
   is_active: boolean;
   has_usable_password: boolean;
   date_joined: string;
+  space: { slug: string; name: string } | null;
 };
 
 export type Paginated<T> = {
@@ -254,6 +286,60 @@ export type VendorWrite = {
   gst?: string;
   website?: string;
 };
+
+export type Space = {
+  slug: string;
+  name: string;
+  location: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type Item = {
+  slug: string;
+  name: string;
+  sku: string;
+  unit: string;
+  quantity_on_hand: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PurchaseRequestLine = {
+  slug: string;
+  description: string;
+  quantity: string;
+  unit: string;
+  item: string | null;
+  awarded_vendor: string | null;
+};
+
+export type PurchaseRequest = {
+  slug: string;
+  title: string;
+  status: "draft" | "submitted" | "approved" | "revision_requested" | "declined";
+  notes: string;
+  space: string | null;
+  created_by: string;
+  review_reason: string;
+  lines: PurchaseRequestLine[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type PurchaseRequestWrite = {
+  title: string;
+  notes?: string;
+  space?: string | null;
+  lines: {
+    description: string;
+    quantity: string;
+    unit: string;
+    item?: string;
+  }[];
+};
 ```
 
 ### `src/lib/api.ts`
@@ -270,6 +356,10 @@ import type {
   TokenPair,
   Vendor,
   VendorWrite,
+  Space,
+  Item,
+  PurchaseRequest,
+  PurchaseRequestWrite,
 } from "./types";
 
 const TOKEN_KEY = "inveno.tokens";
@@ -450,6 +540,111 @@ export async function unsuspendVendor(slug: string) {
   );
   return data;
 }
+
+export async function listSpaces(status?: "active" | "suspended") {
+  const { data } = await api.get<Paginated<Space>>("/api/orgs/spaces/", {
+    params: status ? { status } : undefined,
+  });
+  return data;
+}
+
+export async function createSpace(body: { name: string; location?: string }) {
+  const { data } = await api.post<Space>("/api/orgs/spaces/", body);
+  return data;
+}
+
+export async function assignSpaceIncharge(spaceSlug: string, member: string) {
+  const { data } = await api.post<OrgMember>(
+    `/api/orgs/spaces/${spaceSlug}/incharges/`,
+    { member },
+  );
+  return data;
+}
+
+export async function listItems(status?: "active" | "suspended") {
+  const { data } = await api.get<Paginated<Item>>("/api/orgs/items/", {
+    params: status ? { status } : undefined,
+  });
+  return data;
+}
+
+export async function listPurchaseRequests() {
+  const { data } = await api.get<Paginated<PurchaseRequest>>(
+    "/api/orgs/purchase-requests/",
+  );
+  return data;
+}
+
+export async function createPurchaseRequest(body: PurchaseRequestWrite) {
+  const { data } = await api.post<PurchaseRequest>(
+    "/api/orgs/purchase-requests/",
+    body,
+  );
+  return data;
+}
+
+export async function submitPurchaseRequest(slug: string) {
+  const { data } = await api.post<PurchaseRequest>(
+    `/api/orgs/purchase-requests/${slug}/submit/`,
+  );
+  return data;
+}
+
+export async function recordQuote(
+  rfqSlug: string,
+  body: {
+    vendor: string;
+    lines: { line: string; unit_price: string }[];
+  },
+) {
+  const { data } = await api.post(`/api/orgs/rfqs/${rfqSlug}/quotes/`, body);
+  return data;
+}
+
+export async function selectQuoteLines(
+  rfqSlug: string,
+  selections: { line: string; vendor: string }[],
+) {
+  const { data } = await api.post(`/api/orgs/rfqs/${rfqSlug}/select-lines/`, {
+    selections,
+  });
+  return data;
+}
+
+export async function completeWarehouseReceipt(
+  slug: string,
+  lines: {
+    line: string;
+    action: "new_item" | "add_to_existing";
+    item?: string;
+    name?: string;
+    sku?: string;
+    unit?: string;
+  }[],
+) {
+  const { data } = await api.post(
+    `/api/orgs/warehouse/receipts/${slug}/complete/`,
+    { lines },
+  );
+  return data;
+}
+
+export async function verifyProcessEvent(content_hash: string, signature: string) {
+  const { data } = await api.post<{ valid: boolean }>(
+    "/api/orgs/process-events/verify/",
+    { content_hash, signature },
+  );
+  return data;
+}
+
+export function exportUrl(
+  kind: "purchase-requests" | "rfqs" | "purchase-orders" | "warehouse/receipts",
+  slug: string,
+  format: "pdf" | "xlsx",
+  extra = "",
+) {
+  return `/api/orgs/${kind}/${slug}/${extra}export/?format=${format}`;
+}
 ```
 
 Skip the interceptor refresh for `/api/auth/token/refresh/` itself (the snippet
@@ -463,7 +658,12 @@ import { useEffect, useState } from "react";
 import { getMe, getTokens } from "./lib/api";
 import type { MeResponse, UserType } from "./lib/types";
 
-const ORG_ROLES: UserType[] = ["central_admin", "warehouse_manager"];
+const ORG_ROLES: UserType[] = [
+  "central_admin",
+  "operation_incharge",
+  "warehouse_manager",
+  "space_incharge",
+];
 
 export function RequireAuth({
   orgOnly = false,
@@ -505,10 +705,12 @@ export function RequireAuth({
 ```
 
 - Unauthenticated → `/login`
-- Org routes (`orgOnly`): `central_admin` or `warehouse_manager` + active org
-- Member management (`centralAdminOnly`): `central_admin` only
+- Org routes (`orgOnly`): any org-assignable role + active org
+- Member management and space assignment (`centralAdminOnly`): `central_admin` only
 - Inactive org → show suspended, do not render org UI
 - `super_admin` → platform home, not org routes (`org` is `null`)
+- Space incharge PR UI: require `me.profile.space`
+- Hide vendor/catalog screens for `space_incharge`
 
 ### Get Started page
 

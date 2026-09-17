@@ -21,7 +21,7 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 
 from apps.common.openapi import EmptySerializer, detail_response, error_responses
-from apps.organizations.permissions import IsOrgUser
+from apps.organizations.permissions import IsVendorManager
 from apps.vendors.models import Vendor
 from apps.vendors.serializers import (
     VendorCreateSerializer,
@@ -165,7 +165,7 @@ _NOT_FOUND = detail_response(
 class VendorListCreateView(generics.ListCreateAPIView):
     """List vendors in the caller's org, or create one."""
 
-    permission_classes = [permissions.IsAuthenticated, IsOrgUser]
+    permission_classes = [permissions.IsAuthenticated, IsVendorManager]
     serializer_class = VendorSerializer
 
     def get_queryset(self):
@@ -259,7 +259,7 @@ class VendorListCreateView(generics.ListCreateAPIView):
 class VendorRetrieveUpdateView(generics.RetrieveUpdateAPIView):
     """Retrieve or partially update a vendor by slug."""
 
-    permission_classes = [permissions.IsAuthenticated, IsOrgUser]
+    permission_classes = [permissions.IsAuthenticated, IsVendorManager]
     serializer_class = VendorSerializer
     lookup_field = "slug"
     lookup_url_kwarg = "slug"
@@ -289,7 +289,7 @@ class VendorRetrieveUpdateView(generics.RetrieveUpdateAPIView):
 class _VendorStatusView(generics.GenericAPIView):
     """Shared POST-by-slug machinery for suspend / unsuspend."""
 
-    permission_classes = [permissions.IsAuthenticated, IsOrgUser]
+    permission_classes = [permissions.IsAuthenticated, IsVendorManager]
     serializer_class = EmptySerializer
     lookup_field = "slug"
     lookup_url_kwarg = "slug"

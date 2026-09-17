@@ -158,8 +158,17 @@ class TestMe:
         assert data["profile"] is not None
         assert data["profile"]["user_type"] == "central_admin"
         assert data["profile"]["first_name"] == "Test"
+        assert data["profile"]["space"] is None
         assert data["org"] is not None
         assert data["org"]["org_suffix"] == "test_org"
+
+    def test_get_me_includes_assigned_space(self, assigned_space_client, space):
+        response = assigned_space_client.get(ME_URL)
+        assert response.status_code == 200
+        assert response.data["profile"]["space"] == {
+            "slug": space.slug,
+            "name": space.name,
+        }
 
     def test_get_me_superuser_org_is_null(self, superuser_client):
         response = superuser_client.get(ME_URL)

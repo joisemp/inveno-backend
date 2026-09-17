@@ -149,6 +149,37 @@ class TestOrgMemberListCreate:
         assert len(mail.outbox) == 1
         profile = UserProfile.objects.get(slug="alice-smith")
         assert profile.org == test_org
+        assert data["space"] is None
+
+    def test_create_space_incharge_without_space(self, auth_client):
+        response = auth_client.post(
+            MEMBERS_URL,
+            _payload(
+                email="space@acme.com",
+                first_name="Space",
+                last_name="Lead",
+                user_type="space_incharge",
+            ),
+            format="json",
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["user_type"] == "space_incharge"
+        assert data["space"] is None
+
+    def test_create_operation_incharge(self, auth_client):
+        response = auth_client.post(
+            MEMBERS_URL,
+            _payload(
+                email="ops@acme.com",
+                first_name="Op",
+                last_name="Lead",
+                user_type="operation_incharge",
+            ),
+            format="json",
+        )
+        assert response.status_code == 201
+        assert response.json()["user_type"] == "operation_incharge"
 
     def test_create_central_admin(self, auth_client):
         response = auth_client.post(
@@ -191,6 +222,12 @@ class TestOrgMemberListCreate:
     def test_warehouse_manager_forbidden(self, warehouse_client):
         assert warehouse_client.get(MEMBERS_URL).status_code == 403
         assert warehouse_client.post(MEMBERS_URL, _payload(), format="json").status_code == 403
+
+    def test_ops_forbidden(self, ops_client):
+        assert ops_client.get(MEMBERS_URL).status_code == 403
+
+    def test_space_incharge_forbidden(self, space_incharge_client):
+        assert space_incharge_client.get(MEMBERS_URL).status_code == 403
 
     def test_superuser_forbidden(self, superuser_client):
         assert superuser_client.get(MEMBERS_URL).status_code == 403

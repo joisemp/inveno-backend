@@ -12,6 +12,14 @@ from apps.organizations.views import (
     OrgMemberSuspendView,
     OrgMemberUnsuspendView,
 )
+from apps.organizations.space_views import (
+    SpaceInchargeListCreateView,
+    SpaceInchargeUnassignView,
+    SpaceListCreateView,
+    SpaceRetrieveUpdateView,
+    SpaceSuspendView,
+    SpaceUnsuspendView,
+)
 
 app_name = "organizations"
 
@@ -31,5 +39,27 @@ urlpatterns = [
         "members/<slug:slug>/unsuspend/",
         OrgMemberUnsuspendView.as_view(),
         name="member-unsuspend",
+    ),
+    path("spaces/", SpaceListCreateView.as_view(), name="space-list"),
+    path("spaces/<slug:slug>/", SpaceRetrieveUpdateView.as_view(), name="space-detail"),
+    path(
+        "spaces/<slug:slug>/suspend/",
+        SpaceSuspendView.as_view(),
+        name="space-suspend",
+    ),
+    path(
+        "spaces/<slug:slug>/unsuspend/",
+        SpaceUnsuspendView.as_view(),
+        name="space-unsuspend",
+    ),
+    path(
+        "spaces/<slug:slug>/incharges/",
+        SpaceInchargeListCreateView.as_view(),
+        name="space-incharge-list",
+    ),
+    path(
+        "spaces/<slug:slug>/incharges/<slug:member>/unassign/",
+        SpaceInchargeUnassignView.as_view(),
+        name="space-incharge-unassign",
     ),
 ]

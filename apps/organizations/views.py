@@ -191,7 +191,7 @@ class OrgMemberListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
         qs = (
             UserProfile.objects.filter(org=self.request.user.profile.org)
-            .select_related("user")
+            .select_related("user", "space")
             .order_by("-user__date_joined")
         )
         member_status = self.request.query_params.get("status")

@@ -157,6 +157,11 @@ class MeSerializer(serializers.ModelSerializer):
                 "last_name": p.last_name,
                 "phone": p.phone,
                 "full_name": p.full_name,
+                "space": (
+                    {"slug": p.space.slug, "name": p.space.name}
+                    if p.space_id
+                    else None
+                ),
             }
         except Exception:
             return None

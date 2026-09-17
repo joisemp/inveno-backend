@@ -77,6 +77,8 @@ urlpatterns = [
     path("api/auth/", include("apps.users.urls")),
     path("api/orgs/", include("apps.organizations.urls")),
     path("api/orgs/", include("apps.vendors.urls")),
+    path("api/orgs/", include("apps.inventory.urls")),
+    path("api/orgs/", include("apps.purchases.urls")),
 
     # API Documentation — superuser only (log in at /admin/ first)
     path("api/schema/", DocumentedSchemaView.as_view(), name="schema"),

@@ -11,7 +11,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 
-from apps.organizations.models import Organization
+from apps.organizations.models import Organization, Space
 from apps.users.models import UserProfile
 
 User = get_user_model()
@@ -129,6 +129,26 @@ class TestOrgLinkValidation:
         profile.org = test_org
         with pytest.raises(ValidationError, match="must not be linked"):
             profile.clean()
+
+
+@pytest.mark.django_db
+class TestSpaceFkClean:
+    def test_only_space_incharge_may_have_space(self, test_org, test_user):
+        space = Space.objects.create(org=test_org, name="North")
+        test_user.profile.space = space
+        with pytest.raises(ValidationError, match="Only a space incharge"):
+            test_user.profile.clean()
+
+    def test_space_incharge_may_be_unassigned(self, space_incharge):
+        space_incharge.profile.space = None
+        space_incharge.profile.clean()
+
+    def test_space_must_belong_to_same_org(self, space_incharge):
+        other = Organization.objects.create(name="Other", org_suffix="other_co")
+        foreign = Space.objects.create(org=other, name="Away")
+        space_incharge.profile.space = foreign
+        with pytest.raises(ValidationError, match="same organisation"):
+            space_incharge.profile.clean()
 
 
 @pytest.mark.django_db

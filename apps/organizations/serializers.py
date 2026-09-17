@@ -15,7 +15,9 @@ User = get_user_model()
 
 _ASSIGNABLE_CHOICES = [
     (UserProfile.UserType.CENTRAL_ADMIN, "Central Admin"),
+    (UserProfile.UserType.OPERATION_INCHARGE, "Operation Incharge"),
     (UserProfile.UserType.WAREHOUSE_MANAGER, "Warehouse Manager"),
+    (UserProfile.UserType.SPACE_INCHARGE, "Space Incharge"),
 ]
 
 
@@ -27,6 +29,7 @@ class OrgMemberSerializer(serializers.ModelSerializer):
     has_usable_password = serializers.SerializerMethodField()
     date_joined = serializers.DateTimeField(source="user.date_joined", read_only=True)
     full_name = serializers.CharField(read_only=True)
+    space = serializers.SerializerMethodField()
 
     class Meta:
         model = UserProfile
@@ -41,11 +44,17 @@ class OrgMemberSerializer(serializers.ModelSerializer):
             "is_active",
             "has_usable_password",
             "date_joined",
+            "space",
         )
         read_only_fields = fields
 
     def get_has_usable_password(self, obj) -> bool:
         return obj.user.has_usable_password()
+
+    def get_space(self, obj):
+        if not obj.space_id:
+            return None
+        return {"slug": obj.space.slug, "name": obj.space.name}
 
 
 class OrgMemberCreateSerializer(serializers.Serializer):
