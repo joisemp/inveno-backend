@@ -126,11 +126,11 @@ Auth endpoints (login, password set/reset) are limited to **10 requests / minute
   → Welcome email sent
   → User clicks "Get Started" link
   → POST /api/auth/password/set/  (uid + token from URL + new_password)
-  → POST /api/auth/login/         (email + password)
-  → receive { access, refresh }
-Use access token for API calls (expires in 15 min)
-Use refresh token to get a new access token (expires in 7 days)
-On logout → POST /api/auth/logout/ with the refresh token
+  → POST /api/auth/login/         (email + password, withCredentials: true)
+  → receive { access } + httpOnly refresh cookie (inveno_refresh)
+Store access in memory; send Authorization: Bearer on API calls (15 min)
+Silent refresh → POST /api/auth/token/refresh/ (cookie only, withCredentials)
+On logout → POST /api/auth/logout/ (withCredentials) clears the cookie
 ```
 
 ### JWT Token Claims
@@ -224,13 +224,19 @@ The link contains `uid` and `token` query parameters.
 }
 ```
 
-**Success `200`:**
+**Success `200` — JSON body:**
 ```json
 {
-  "access": "eyJ0eXAiOiJKV1QiLCJhbGci...",
-  "refresh": "eyJ0eXAiOiJKV1QiLCJhbGci..."
+  "access": "eyJ0eXAiOiJKV1QiLCJhbGci..."
 }
 ```
+
+**Success `200` — response headers (Set-Cookie):**
+```http
+Set-Cookie: inveno_refresh=<refresh_token>; HttpOnly; Path=/api/auth/; SameSite=Lax; Max-Age=604800
+```
+
+> The refresh token is **never** in the JSON body. The browser stores it automatically when `withCredentials: true`.
 
 **Error `401` — wrong email or password:**
 ```json
@@ -269,31 +275,33 @@ The link contains `uid` and `token` query parameters.
 
 ### 3. Refresh Access Token
 
-Access tokens expire in **15 minutes**. Use the refresh token to get a new one.
+Access tokens expire in **15 minutes**. Call refresh with the httpOnly cookie (no JSON body).
 
 | | |
 |---|---|
 | **Method / URL** | `POST /api/auth/token/refresh/` |
-| **Auth** | None (body carries refresh token) |
+| **Auth** | None — refresh httpOnly cookie required |
+| **Credentials** | `withCredentials: true` (axios) or `credentials: 'include'` (fetch) |
 
-**Request body:**
-```json
-{ "refresh": "<refresh_token>" }
-```
+**Request body:** empty `{}` or omit entirely.
 
-**Success `200`:**
+**Success `200` — JSON body:**
 ```json
 {
-  "access": "new_access_token...",
-  "refresh": "new_refresh_token..."
+  "access": "new_access_token..."
 }
 ```
 
-> `ROTATE_REFRESH_TOKENS = True` — each refresh returns a **new refresh token**. Store it. The old refresh token is blacklisted.
+**Success `200` — response headers:** new `Set-Cookie: inveno_refresh=...` (rotated).
 
-**Error `400` — missing refresh:**
+> `ROTATE_REFRESH_TOKENS = True` — each refresh rotates the cookie. The old refresh token is blacklisted.
+
+**Error `401` — missing cookie:**
 ```json
-{ "refresh": ["This field is required."] }
+{
+  "detail": "Refresh cookie is missing.",
+  "code": "token_not_valid"
+}
 ```
 
 **Error `401` — invalid, expired, or blacklisted refresh:**
@@ -340,34 +348,22 @@ Access tokens expire in **15 minutes**. Use the refresh token to get a new one.
 
 ### 5. Logout
 
-Blacklists the refresh token so it cannot be used again.
+Blacklists the refresh cookie and clears it from the browser.
 
 | | |
 |---|---|
 | **Method / URL** | `POST /api/auth/logout/` |
-| **Auth** | Bearer access token required |
+| **Auth** | None — refresh httpOnly cookie required |
+| **Credentials** | `withCredentials: true` |
 
-**Request body:**
-```json
-{ "refresh": "<refresh_token>" }
-```
+**Request body:** empty `{}` or omit entirely.
 
 **Success `200`:**
 ```json
 { "detail": "Successfully logged out." }
 ```
 
-**Error `400` — missing refresh:**
-```json
-{ "detail": "Refresh token is required." }
-```
-
-**Error `400` — invalid or already blacklisted:**
-```json
-{ "detail": "Invalid or already blacklisted token." }
-```
-
-**Error `401`:** see [Shared Error Responses](#401--not-authenticated)
+The response clears the `inveno_refresh` cookie. Bearer access is **not** required (works with an expired access token).
 
 ---
 
@@ -1449,6 +1445,8 @@ Tampered signatures return `{ "valid": false }`.
 { "detail": "Password updated successfully." }
 ```
 
+> All outstanding refresh tokens for this user are blacklisted and the `inveno_refresh` cookie is cleared. The client must log in again.
+
 **Error `400` — wrong old password:**
 ```json
 { "old_password": ["Old password is incorrect."] }
@@ -1664,19 +1662,22 @@ In production, configure `CORS_ALLOWED_ORIGINS` on the server to include your de
 
 ---
 
-## Token Storage Recommendations
+## Token Storage
 
-| Method | Security | Notes |
+| Token | Where | Notes |
 |---|---|---|
-| `httpOnly` cookie | Best | Safe from XSS. Requires cookie-based auth setup. |
-| In-memory (React state) | Good | Lost on refresh — pair with silent refresh strategy. |
-| `localStorage` | Risky | Vulnerable to XSS. Avoid for access tokens. |
+| Access (15 min) | In-memory only | React context / module variable — never `localStorage` |
+| Refresh (7 days) | httpOnly cookie `inveno_refresh` | Set by API on login/refresh; `Path=/api/auth/`; JS cannot read it |
 
-### Recommended pattern (in-memory + refresh)
+### Client requirements
 
-1. Store `access` token in memory (React context / Zustand / Redux)
-2. Store `refresh` token securely (prefer httpOnly cookie via BFF, or memory)
-3. On page load, call `POST /api/auth/token/refresh/` to get a new access token silently
+1. `axios.create({ withCredentials: true })` (or `fetch` with `credentials: 'include'`)
+2. Store `access` in memory after login or silent refresh
+3. On app load, call `POST /api/auth/token/refresh/` with credentials (empty body)
+4. On `401`, try one silent refresh; on failure redirect to `/login`
+5. Do **not** refresh on `403` (permission denied, not expired token)
+
+See the full React/Vite/TS kit in [`apps/common/frontend_guide.md`](apps/common/frontend_guide.md) (also at `/api/docs/frontend/`).
 
 ---
 
@@ -1685,48 +1686,61 @@ In production, configure `CORS_ALLOWED_ORIGINS` on the server to include your de
 ### Axios setup (recommended)
 
 ```js
+// src/lib/auth.js — access in memory only
+let accessToken = null;
+export const getAccessToken = () => accessToken;
+export const setAccessToken = (token) => { accessToken = token; };
+export const clearAccessToken = () => { accessToken = null; };
+```
+
+```js
 // src/lib/api.js
 import axios from 'axios';
+import { getAccessToken, setAccessToken, clearAccessToken } from './auth';
 
-const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL,
+const baseURL = import.meta.env.VITE_API_URL;
+
+export const api = axios.create({
+  baseURL,
+  withCredentials: true,
   headers: { 'Content-Type': 'application/json' },
 });
 
-// Attach access token to every request
 api.interceptors.request.use((config) => {
-  const token = getAccessToken(); // your token getter
-  if (token) config.headers.Authorization = `Bearer ${token}`;
+  const access = getAccessToken();
+  if (access) config.headers.Authorization = `Bearer ${access}`;
   return config;
 });
 
-// Auto-refresh on 401
+let refreshing = null;
+
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const original = error.config;
-    if (error.response?.status === 401 && !original._retry) {
+    if (error.response?.status === 401 && original && !original._retry) {
       original._retry = true;
       try {
-        const refresh = getRefreshToken();
-        const { data } = await axios.post(
-          `${import.meta.env.VITE_API_URL}/api/auth/token/refresh/`,
-          { refresh }
-        );
-        setAccessToken(data.access);
-        setRefreshToken(data.refresh); // rotation — store the new refresh
-        original.headers.Authorization = `Bearer ${data.access}`;
+        if (!refreshing) {
+          refreshing = axios
+            .post(`${baseURL}/api/auth/token/refresh/`, {}, { withCredentials: true })
+            .then((r) => {
+              setAccessToken(r.data.access);
+              return r.data.access;
+            })
+            .finally(() => { refreshing = null; });
+        }
+        const access = await refreshing;
+        original.headers.Authorization = `Bearer ${access}`;
         return api(original);
       } catch {
-        clearTokens();
-        window.location.href = '/login';
+        clearAccessToken();
+        window.location.assign('/login');
       }
     }
     return Promise.reject(error);
   }
 );
-
-export default api;
 ```
 
 ### Set password (welcome email / Get Started)
@@ -1748,8 +1762,7 @@ const setPassword = async (uid, token, newPassword, newPassword2) => {
 ```js
 const login = async (email, password) => {
   const { data } = await api.post('/api/auth/login/', { email, password });
-  setAccessToken(data.access);
-  setRefreshToken(data.refresh);
+  setAccessToken(data.access); // refresh is in httpOnly cookie
   return data;
 };
 ```
@@ -1768,8 +1781,11 @@ const getProfile = async () => {
 
 ```js
 const logout = async () => {
-  await api.post('/api/auth/logout/', { refresh: getRefreshToken() });
-  clearTokens();
+  try {
+    await api.post('/api/auth/logout/');
+  } finally {
+    clearAccessToken();
+  }
 };
 ```
 
