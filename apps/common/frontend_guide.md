@@ -1247,6 +1247,8 @@ export function GetStartedPage() {
 
 Use `forgotPassword(email)` then `/reset-password?uid=...&token=...` with
 `resetPasswordConfirm({ uid, token, new_password, new_password2 })`.
+Confirming a reset blacklists outstanding refresh tokens; the user must log in
+again.
 
 ### Change password
 
@@ -1308,6 +1310,6 @@ Gate org UI with any org-assignable `user_type` and `org?.is_active`.
 6. Public resources use **slug**, never UUID, in URLs and payloads.
 7. No public self-registration — users come from org member API or admin.
 8. PDF/XLSX downloads use `responseType: 'blob'` with Bearer — not plain `<a href>`.
-9. Change password / logout clears session; user must log in again after password change.
+9. Change password, forgot-password confirm, and logout revoke refresh sessions; the user must log in again after a password change or reset.
 
 Per-endpoint request and response JSON: see [`FRONTEND_API.md`](../../FRONTEND_API.md).

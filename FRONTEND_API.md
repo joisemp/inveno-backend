@@ -312,6 +312,8 @@ Access tokens expire in **15 minutes**. Call refresh with the httpOnly cookie (n
 }
 ```
 
+**Error `429`:** see [Shared Error Responses](#429--rate-limited)
+
 ---
 
 ### 4. Verify Token
@@ -364,6 +366,8 @@ Blacklists the refresh cookie and clears it from the browser.
 ```
 
 The response clears the `inveno_refresh` cookie. Bearer access is **not** required (works with an expired access token).
+
+**Error `429`:** see [Shared Error Responses](#429--rate-limited)
 
 ---
 
@@ -1515,6 +1519,8 @@ Tampered signatures return `{ "valid": false }`.
 ```json
 { "detail": "Password has been reset successfully." }
 ```
+
+> All outstanding refresh tokens for this user are blacklisted. Existing sessions must log in again.
 
 **Error `400` — invalid uid:**
 ```json
