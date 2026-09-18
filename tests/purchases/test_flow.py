@@ -1,7 +1,7 @@
 """Purchase-flow tests: PR, RFQ, per-line vendor select, PO, QC, warehouse, trail."""
 import pytest
 
-from apps.inventory.models import Item
+from apps.inventory.models import Item, Warehouse
 from apps.vendors.models import Vendor
 
 PR = "/api/orgs/purchase-requests/"
@@ -220,6 +220,9 @@ class TestSplitAwardAndWarehouse:
         assert done.json()["status"] == "completed"
         item = Item.objects.get(org=test_org, name="A4 paper stock")
         assert item.quantity_on_hand == 10
+        assert item.last_purchase_quantity == 10
+        assert item.last_purchase_date is not None
+        assert item.warehouse_id is not None
 
         inv = ops_client.post(
             f"{PO}{po_a.json()['slug']}/invoice/",
@@ -475,10 +478,14 @@ class TestRevisionRejectAndQc:
         assert line["awarded_vendor"] is None
 
     def test_add_to_existing_stock(
-        self, ops_client, warehouse_client, vendor_a, vendor_b, test_org
+        self, ops_client, warehouse_client, vendor_a, vendor_b, test_org, warehouse
     ):
         existing = Item.objects.create(
-            org=test_org, name="A4 paper stock", unit="ream", quantity_on_hand=3
+            org=test_org,
+            warehouse=warehouse,
+            name="A4 paper stock",
+            unit="ream",
+            quantity_on_hand=3,
         )
         _created, rfq, line_slugs = _submit_quoted_rfq(ops_client, vendor_a, vendor_b)
         ops_client.post(
@@ -512,6 +519,43 @@ class TestRevisionRejectAndQc:
         pdf = warehouse_client.get(f"{RECV}{receipt['slug']}/export/?format=pdf")
         assert pdf.status_code == 200
         assert pdf.content[:4] == b"%PDF"
+
+    def test_add_to_existing_rejects_other_warehouse(
+        self, ops_client, warehouse_client, vendor_a, vendor_b, test_org, warehouse
+    ):
+        other = Warehouse.objects.create(org=test_org, name="South store")
+        stray = Item.objects.create(
+            org=test_org, warehouse=other, name="A4 paper stock", unit="ream"
+        )
+        _created, rfq, line_slugs = _submit_quoted_rfq(ops_client, vendor_a, vendor_b)
+        ops_client.post(
+            f"{RFQ}{rfq['slug']}/select-lines/",
+            {"selections": [{"line": line_slugs[0], "vendor": vendor_a.slug}]},
+            format="json",
+        )
+        po = ops_client.post(
+            f"{RFQ}{rfq['slug']}/purchase-orders/",
+            {"vendor": vendor_a.slug, "create_purchase_order": True},
+            format="json",
+        ).json()
+        ops_client.post(f"{PO}{po['slug']}/quality-check/", {"passed": True}, format="json")
+        receipt = warehouse_client.get(f"{RECV}?status=pending").json()["results"][0]
+        done = warehouse_client.post(
+            f"{RECV}{receipt['slug']}/complete/",
+            {
+                "warehouse": warehouse.slug,
+                "lines": [
+                    {
+                        "line": receipt["lines"][0]["slug"],
+                        "action": "add_to_existing",
+                        "item": stray.slug,
+                    }
+                ]
+            },
+            format="json",
+        )
+        assert done.status_code == 400
+        assert done.json()["item"] == "This item is not in the receipt warehouse."
 
     def test_rfq_and_po_xlsx_export(self, ops_client, vendor_a, vendor_b):
         _created, rfq, line_slugs = _submit_quoted_rfq(ops_client, vendor_a, vendor_b)

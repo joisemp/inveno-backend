@@ -27,10 +27,16 @@ EXPECTED_PATHS = [
     "/api/orgs/vendors/{slug}/",
     "/api/orgs/vendors/{slug}/suspend/",
     "/api/orgs/vendors/{slug}/unsuspend/",
+    "/api/orgs/warehouses/",
+    "/api/orgs/warehouses/{slug}/",
+    "/api/orgs/item-categories/",
+    "/api/orgs/item-categories/{slug}/",
     "/api/orgs/items/",
     "/api/orgs/items/{slug}/",
     "/api/orgs/items/{slug}/suspend/",
     "/api/orgs/items/{slug}/unsuspend/",
+    "/api/orgs/items/{slug}/photos/",
+    "/api/orgs/items/{slug}/photos/{photo_slug}/",
     "/api/orgs/purchase-requests/",
     "/api/orgs/purchase-requests/{slug}/",
     "/api/orgs/purchase-requests/{slug}/submit/",
@@ -159,6 +165,15 @@ def test_items_schema_documents_success_and_errors():
     get = schema["paths"]["/api/orgs/items/"]["get"]["responses"]
     for code in ("200", "400", "401", "403"):
         assert code in get, f"items GET missing response {code}"
+    photos = schema["paths"]["/api/orgs/items/{slug}/photos/"]["post"]["responses"]
+    for code in ("201", "400", "401", "403", "404"):
+        assert code in photos, f"item photos POST missing response {code}"
+    warehouses = schema["paths"]["/api/orgs/warehouses/"]["post"]["responses"]
+    for code in ("201", "400", "401", "403"):
+        assert code in warehouses, f"warehouses POST missing response {code}"
+    categories = schema["paths"]["/api/orgs/item-categories/"]["post"]["responses"]
+    for code in ("201", "400", "401", "403"):
+        assert code in categories, f"categories POST missing response {code}"
 
 
 @pytest.mark.django_db

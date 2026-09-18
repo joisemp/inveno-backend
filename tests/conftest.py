@@ -15,6 +15,7 @@ warehouse_client   — DRF client authenticated as warehouse_manager
 operation_incharge — an operation-incharge User linked to test_org
 ops_client         — DRF client authenticated as operation_incharge
 space              — an active Space in test_org
+warehouse          — default Warehouse named "Warehouse" in test_org
 space_incharge     — unassigned space_incharge User
 space_incharge_client — JWT client for space_incharge
 assigned_space_incharge — space_incharge linked to space
@@ -45,14 +46,28 @@ def api_client():
 
 @pytest.fixture
 def test_org(db):
-    """An active Organisation for use in tests."""
+    """An active Organisation with a default warehouse."""
+    from apps.inventory.models import Warehouse
     from apps.organizations.models import Organization
 
-    return Organization.objects.create(
+    org = Organization.objects.create(
         name="Test Organisation",
         org_suffix="test_org",
         location="Test City",
     )
+    Warehouse.objects.create(org=org, name="Warehouse")
+    return org
+
+
+@pytest.fixture
+def warehouse(db, test_org):
+    """Default warehouse for test_org (created if missing)."""
+    from apps.inventory.models import Warehouse
+
+    obj, _created = Warehouse.objects.get_or_create(
+        org=test_org, name="Warehouse", defaults={"location": ""}
+    )
+    return obj
 
 
 @pytest.fixture
