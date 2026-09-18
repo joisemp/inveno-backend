@@ -1533,6 +1533,43 @@ Exports: `/api/orgs/purchase-orders/{slug}/export/?format=pdf|xlsx` and
 
 Optional `?status=pending` or `completed`.
 
+Each pending line includes prompt fields for the warehouse UI:
+
+- `source_item` — original PR catalog item slug when it still belongs to the
+  receipt warehouse; otherwise `null`
+- `suggested_items` — up to 5 active items in that warehouse whose `name`
+  matches the line `description` (case-insensitive), including `source_item`
+  when present. Empty when the receipt has no warehouse yet (re-GET after
+  sending `warehouse` on complete, or when the org has one warehouse so it is
+  set at QC)
+
+**Success `200` (pending line excerpt):**
+```json
+{
+  "slug": "recv-po-a4-paper",
+  "description": "A4 paper",
+  "quantity": "10.000",
+  "unit": "ream",
+  "item": null,
+  "source_item": "a4-paper",
+  "suggested_items": [
+    {
+      "slug": "a4-paper",
+      "name": "A4 paper",
+      "part_number": "PAP-A4",
+      "unit": "ream",
+      "quantity_on_hand": "3.000"
+    }
+  ]
+}
+```
+
+Prompt:
+
+- `suggested_items` present → ask whether to add stock to that item or create a
+  new catalog item
+- empty → only offer create as a new item (confirm)
+
 **Complete** `POST /api/orgs/warehouse/receipts/{slug}/complete/` — every receipt
 line must be included. Mix `new_item` and `add_to_existing` per line. Stock is
 always credited to the receipt warehouse (never a Space). If the org has one
@@ -1551,7 +1588,8 @@ active warehouse, it is set when the receipt is created; otherwise send
 
 **Success `200`:** receipt with `"status": "completed"`, `"warehouse"`, and `item`
 slugs filled. Completing also stamps `last_purchase_date` and
-`last_purchase_quantity` on the item.
+`last_purchase_quantity` on the item. `new_item` with a duplicate name in that
+warehouse returns 400 from the catalog.
 
 **Error `400`:**
 ```json
@@ -2007,3 +2045,4 @@ You will see the full email body including the password reset or Get Started lin
 | 1.4.0 | 2026-09-16 | Vendor API: list/add/get/update/suspend (`/api/orgs/vendors/`) |
 | 1.5.0 | 2026-09-17 | Spaces, `operation_incharge` / `space_incharge`, item catalog, purchase flow (RFQ, per-line award, PO, QC, warehouse, HMAC trail, PDF/Excel) |
 | 1.6.0 | 2026-09-18 | Warehouses, item categories, catalog fields, WebP photos (max 5), receipts credit a warehouse |
+| 1.7.0 | 2026-09-18 | Receipt GET `source_item` / `suggested_items` so the UI can prompt add-stock vs new item |

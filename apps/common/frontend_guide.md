@@ -388,12 +388,22 @@ export type PurchaseInvoice = {
   created_at: string;
 };
 
+export type WarehouseReceiptSuggestedItem = {
+  slug: string;
+  name: string;
+  part_number: string;
+  unit: string;
+  quantity_on_hand: string;
+};
+
 export type WarehouseReceiptLine = {
   slug: string;
   description: string;
   quantity: string;
   unit: string;
   item: string | null;
+  source_item: string | null;
+  suggested_items: WarehouseReceiptSuggestedItem[];
 };
 
 export type WarehouseReceipt = {
@@ -510,6 +520,7 @@ import type {
   VendorWrite,
   Warehouse,
   WarehouseReceipt,
+  WarehouseReceiptLine,
   WarehouseWrite,
 } from "./types";
 
@@ -1088,6 +1099,26 @@ export async function completeWarehouseReceipt(
   return data;
 }
 
+/** Map one pending line after the user chooses add-stock vs create-new. */
+export function receiptLineAction(
+  line: WarehouseReceiptLine,
+  addToExisting: boolean,
+) {
+  if (addToExisting && line.suggested_items[0]) {
+    return {
+      line: line.slug,
+      action: "add_to_existing" as const,
+      item: line.suggested_items[0].slug,
+    };
+  }
+  return {
+    line: line.slug,
+    action: "new_item" as const,
+    name: line.description,
+    unit: line.unit,
+  };
+}
+
 // ── Process trail verify ─────────────────────────────────────────────────────
 
 export async function verifyProcessEvent(content_hash: string, signature: string) {
@@ -1375,6 +1406,28 @@ After success the API clears the refresh cookie — redirect to `/login`:
 ```tsx
 await changePassword({ old_password, new_password, new_password2 });
 navigate("/login");
+```
+
+### Complete warehouse receipt
+
+`GET` pending lines include `suggested_items`. If that array is non-empty, ask
+whether to add stock to the match or create a new catalog item. If empty, only
+offer create-new. Then `POST` complete with **every** line.
+
+```tsx
+const receipt = await getWarehouseReceipt(slug);
+const lines = receipt.lines.map((line) => {
+  const addToExisting =
+    line.suggested_items.length > 0 &&
+    window.confirm(
+      `${line.suggested_items[0].name} already exists in this warehouse. Add stock to it?`,
+    );
+  return receiptLineAction(line, addToExisting);
+});
+await completeWarehouseReceipt(receipt.slug, {
+  warehouse: receipt.warehouse ?? undefined,
+  lines,
+});
 ```
 
 ---
