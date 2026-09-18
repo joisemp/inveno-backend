@@ -292,6 +292,7 @@ class ReceiptLineSerializer(serializers.ModelSerializer):
 
 class WarehouseReceiptSerializer(serializers.ModelSerializer):
     purchase_order = serializers.SlugRelatedField(read_only=True, slug_field="slug")
+    warehouse = serializers.SlugRelatedField(read_only=True, slug_field="slug")
     lines = ReceiptLineSerializer(many=True, read_only=True)
 
     class Meta:
@@ -299,6 +300,7 @@ class WarehouseReceiptSerializer(serializers.ModelSerializer):
         fields = (
             "slug",
             "purchase_order",
+            "warehouse",
             "status",
             "lines",
             "created_at",
@@ -312,11 +314,12 @@ class ReceiptCompleteLineSerializer(serializers.Serializer):
     action = serializers.ChoiceField(choices=["new_item", "add_to_existing"])
     item = serializers.SlugField(required=False, allow_blank=True)
     name = serializers.CharField(required=False, allow_blank=True)
-    sku = serializers.CharField(required=False, allow_blank=True)
+    part_number = serializers.CharField(required=False, allow_blank=True)
     unit = serializers.CharField(required=False, allow_blank=True)
 
 
 class ReceiptCompleteSerializer(serializers.Serializer):
+    warehouse = serializers.SlugField(required=False, allow_blank=True)
     lines = ReceiptCompleteLineSerializer(many=True)
 
 

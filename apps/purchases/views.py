@@ -8,6 +8,8 @@ from rest_framework.negotiation import BaseContentNegotiation
 from rest_framework.response import Response
 
 from apps.common.openapi import EmptySerializer, DetailSerializer, detail_response, error_responses
+from apps.inventory.models import Warehouse
+from apps.inventory.services import get_org_warehouse
 from apps.organizations.permissions import (
     IsCentralAdminOrOps,
     IsPurchaseRequester,
@@ -524,11 +526,22 @@ class WarehouseReceiptCompleteView(generics.GenericAPIView):
         receipt = self.get_object()
         ser = ReceiptCompleteSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
+        warehouse = None
+        warehouse_slug = ser.validated_data.get("warehouse") or ""
+        if warehouse_slug:
+            try:
+                warehouse = get_org_warehouse(org=receipt.org, slug=warehouse_slug)
+            except Warehouse.DoesNotExist:
+                return Response(
+                    {"warehouse": "Unknown warehouse."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
         try:
             receipt = complete_warehouse_receipt(
                 receipt=receipt,
                 actor=request.user.profile,
                 lines=ser.validated_data["lines"],
+                warehouse=warehouse,
             )
         except DjangoValidationError as exc:
             return _err(exc)

@@ -264,6 +264,7 @@ SPECTACULAR_SETTINGS = {
         "| Organisation | `/api/orgs/` |\n"
         "| Spaces | `/api/orgs/spaces/` |\n"
         "| Items | `/api/orgs/items/` |\n"
+        "| Warehouses | `/api/orgs/warehouses/` |\n"
         "| Purchases | `/api/orgs/purchase-requests/` |\n"
         "| Vendors | `/api/orgs/vendors/` |\n"
         "| System | `/api/health/` |"
@@ -281,6 +282,14 @@ SPECTACULAR_SETTINGS = {
         {
             "name": "Spaces",
             "description": "Org spaces — central admin writes; ops and assigned space incharges can read.",
+        },
+        {
+            "name": "Warehouses",
+            "description": "Org warehouses — stock lands here from receipts; space issue is a later API.",
+        },
+        {
+            "name": "Item categories",
+            "description": "Reusable org-wide catalog categories.",
         },
         {
             "name": "Items",

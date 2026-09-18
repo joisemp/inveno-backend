@@ -12,7 +12,12 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.inventory.models import Item
-from apps.inventory.services import create_item, increment_stock
+from apps.inventory.services import (
+    WAREHOUSE_REQUIRED,
+    create_item,
+    default_receipt_warehouse,
+    increment_stock,
+)
 from apps.organizations.models import Organization, Space
 from apps.purchases.models import (
     ProcessEvent,
@@ -51,6 +56,7 @@ NO_AWARDED_LINES = "This vendor has no awarded lines."
 RECEIPT_NOT_PENDING = "This receipt is already completed."
 ALL_LINES_REQUIRED = "Every receipt line must be included."
 ITEM_REQUIRED = "An existing item slug is required to add to stock."
+ITEM_WRONG_WAREHOUSE = "This item is not in the receipt warehouse."
 UNKNOWN_ACTION = "Action must be new_item or add_to_existing."
 PR_NOT_APPROVED = "The purchase request must be approved first."
 
@@ -586,7 +592,10 @@ def record_quality_check(
     if passed:
         po.status = PurchaseOrder.Status.RECEIVED
         po.save(update_fields=["status", "updated_at"])
-        receipt = WarehouseReceipt.objects.create(org=po.org, purchase_order=po)
+        warehouse = default_receipt_warehouse(org=po.org)
+        receipt = WarehouseReceipt.objects.create(
+            org=po.org, purchase_order=po, warehouse=warehouse
+        )
         for line in po.lines.all():
             WarehouseReceiptLine.objects.create(
                 receipt=receipt,
@@ -660,9 +669,17 @@ def complete_warehouse_receipt(
     receipt: WarehouseReceipt,
     actor: UserProfile,
     lines: list[dict],
+    warehouse=None,
 ) -> WarehouseReceipt:
     if receipt.status != WarehouseReceipt.Status.PENDING:
         raise ValidationError({"detail": RECEIPT_NOT_PENDING})
+    if receipt.warehouse_id is None:
+        if warehouse is None:
+            raise ValidationError({"warehouse": WAREHOUSE_REQUIRED})
+        if warehouse.org_id != receipt.org_id:
+            raise ValidationError({"warehouse": WAREHOUSE_REQUIRED})
+        receipt.warehouse = warehouse
+        receipt.save(update_fields=["warehouse"])
     receipt_lines = {line.slug: line for line in receipt.lines.select_related("po_line")}
     if set(row["line"] for row in lines) != set(receipt_lines):
         raise ValidationError({"lines": ALL_LINES_REQUIRED})
@@ -678,15 +695,18 @@ def complete_warehouse_receipt(
                 item = Item.objects.get(org=receipt.org, slug=item_slug)
             except Item.DoesNotExist as exc:
                 raise ValidationError({"item": ITEM_REQUIRED}) from exc
+            if item.warehouse_id != receipt.warehouse_id:
+                raise ValidationError({"item": ITEM_WRONG_WAREHOUSE})
             increment_stock(item=item, quantity=qty)
             rec_line.item = item
             rec_line.save(update_fields=["item"])
         elif action == "new_item":
             item = create_item(
                 org=receipt.org,
+                warehouse=receipt.warehouse,
                 name=row.get("name") or rec_line.description,
                 unit=row.get("unit") or rec_line.unit,
-                sku=row.get("sku") or "",
+                part_number=row.get("part_number") or "",
             )
             increment_stock(item=item, quantity=qty)
             rec_line.item = item
