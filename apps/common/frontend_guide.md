@@ -85,7 +85,7 @@ hint for first paint only. For space incharges, `profile.space` is
 | Screen | Roles |
 |---|---|
 | Members / spaces admin | `central_admin` |
-| Vendors / items | `central_admin`, `operation_incharge`, `warehouse_manager` |
+| Vendors / items / warehouses | `central_admin`, `operation_incharge`, `warehouse_manager` |
 | Purchase requests | `space_incharge` (with space), `operation_incharge`, `central_admin` |
 | RFQ / PO / QC / invoice | `operation_incharge`, `central_admin` |
 | Warehouse receipts | `warehouse_manager`, `central_admin` |
@@ -238,21 +238,67 @@ export type VendorWrite = {
   website?: string;
 };
 
-export type Item = {
+export type Warehouse = {
   slug: string;
   name: string;
-  sku: string;
+  location: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WarehouseWrite = {
+  name: string;
+  location?: string;
+  is_active?: boolean;
+};
+
+export type ItemCategory = {
+  slug: string;
+  name: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ItemPhoto = {
+  slug: string;
+  url: string;
+};
+
+export type Item = {
+  slug: string;
+  warehouse: string;
+  name: string;
+  description: string;
+  part_number: string;
+  alternate_part_number: string;
   unit: string;
+  category: string | null;
+  location: string;
+  remarks: string;
   quantity_on_hand: string;
+  balance_in_stock: string;
+  last_purchase_date: string | null;
+  last_purchase_quantity: string | null;
+  photos: ItemPhoto[];
   is_active: boolean;
   created_at: string;
   updated_at: string;
 };
 
 export type ItemWrite = {
+  warehouse: string;
   name: string;
-  sku: string;
   unit: string;
+  description?: string;
+  part_number?: string;
+  alternate_part_number?: string;
+  category?: string | null;
+  location?: string;
+  remarks?: string;
+  last_purchase_date?: string | null;
+  last_purchase_quantity?: string | null;
 };
 
 export type PurchaseRequestLine = {
@@ -353,6 +399,7 @@ export type WarehouseReceiptLine = {
 export type WarehouseReceipt = {
   slug: string;
   purchase_order: string;
+  warehouse: string | null;
   status: string;
   lines: WarehouseReceiptLine[];
   created_at: string;
@@ -445,6 +492,8 @@ import { clearAccessToken, getAccessToken, setAccessToken } from "./auth";
 import type {
   AccessTokenResponse,
   Item,
+  ItemCategory,
+  ItemPhoto,
   ItemWrite,
   MeResponse,
   OrgAssignableUserType,
@@ -459,7 +508,9 @@ import type {
   Space,
   Vendor,
   VendorWrite,
+  Warehouse,
   WarehouseReceipt,
+  WarehouseWrite,
 } from "./types";
 
 const baseURL = import.meta.env.VITE_API_URL;
@@ -732,12 +783,61 @@ export async function unsuspendVendor(slug: string) {
   return data;
 }
 
-// ── Items ────────────────────────────────────────────────────────────────────
+// ── Warehouses ───────────────────────────────────────────────────────────────
 
-export async function listItems(status?: "active" | "suspended") {
-  const { data } = await api.get<Paginated<Item>>("/api/orgs/items/", {
+export async function listWarehouses(status?: "active" | "suspended") {
+  const { data } = await api.get<Paginated<Warehouse>>("/api/orgs/warehouses/", {
     params: status ? { status } : undefined,
   });
+  return data;
+}
+
+export async function createWarehouse(body: WarehouseWrite) {
+  const { data } = await api.post<Warehouse>("/api/orgs/warehouses/", body);
+  return data;
+}
+
+export async function getWarehouse(slug: string) {
+  const { data } = await api.get<Warehouse>(`/api/orgs/warehouses/${slug}/`);
+  return data;
+}
+
+export async function updateWarehouse(slug: string, body: Partial<WarehouseWrite>) {
+  const { data } = await api.patch<Warehouse>(`/api/orgs/warehouses/${slug}/`, body);
+  return data;
+}
+
+// ── Item categories ──────────────────────────────────────────────────────────
+
+export async function listItemCategories() {
+  const { data } = await api.get<Paginated<ItemCategory>>("/api/orgs/item-categories/");
+  return data;
+}
+
+export async function createItemCategory(body: { name: string }) {
+  const { data } = await api.post<ItemCategory>("/api/orgs/item-categories/", body);
+  return data;
+}
+
+export async function updateItemCategory(
+  slug: string,
+  body: { name?: string; is_active?: boolean },
+) {
+  const { data } = await api.patch<ItemCategory>(
+    `/api/orgs/item-categories/${slug}/`,
+    body,
+  );
+  return data;
+}
+
+// ── Items ────────────────────────────────────────────────────────────────────
+
+export async function listItems(params?: {
+  status?: "active" | "suspended";
+  warehouse?: string;
+  page?: number;
+}) {
+  const { data } = await api.get<Paginated<Item>>("/api/orgs/items/", { params });
   return data;
 }
 
@@ -764,6 +864,21 @@ export async function suspendItem(slug: string) {
 export async function unsuspendItem(slug: string) {
   const { data } = await api.post<{ detail: string }>(`/api/orgs/items/${slug}/unsuspend/`);
   return data;
+}
+
+export async function createItemPhoto(itemSlug: string, file: File) {
+  const form = new FormData();
+  form.append("image", file);
+  const { data } = await api.post<ItemPhoto>(
+    `/api/orgs/items/${itemSlug}/photos/`,
+    form,
+    { headers: { "Content-Type": "multipart/form-data" } },
+  );
+  return data;
+}
+
+export async function deleteItemPhoto(itemSlug: string, photoSlug: string) {
+  await api.delete(`/api/orgs/items/${itemSlug}/photos/${photoSlug}/`);
 }
 
 // ── Purchase requests ────────────────────────────────────────────────────────
@@ -954,18 +1069,21 @@ export async function getWarehouseReceipt(slug: string) {
 
 export async function completeWarehouseReceipt(
   slug: string,
-  lines: {
-    line: string;
-    action: "new_item" | "add_to_existing";
-    item?: string;
-    name?: string;
-    sku?: string;
-    unit?: string;
-  }[],
+  body: {
+    warehouse?: string;
+    lines: {
+      line: string;
+      action: "new_item" | "add_to_existing";
+      item?: string;
+      name?: string;
+      part_number?: string;
+      unit?: string;
+    }[];
+  },
 ) {
   const { data } = await api.post<WarehouseReceipt>(
     `/api/orgs/warehouse/receipts/${slug}/complete/`,
-    { lines },
+    body,
   );
   return data;
 }
