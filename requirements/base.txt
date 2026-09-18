@@ -35,6 +35,9 @@ whitenoise==6.8.2
 # Filtering
 django-filter==24.3
 
+# Images (ImageField + WebP conversion)
+Pillow==11.0.0
+
 # Exports
 reportlab==4.4.10
 openpyxl==3.1.5
