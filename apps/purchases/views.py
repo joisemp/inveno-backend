@@ -2,7 +2,13 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http import Http404
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_view,
+)
 from rest_framework import generics, permissions, status
 from rest_framework.negotiation import BaseContentNegotiation
 from rest_framework.response import Response
@@ -481,8 +487,16 @@ class PurchaseOrderInvoiceView(_POActionView):
         return Response(PurchaseInvoiceSerializer(invoice).data)
 
 
+_RECEIPT_PREFETCH = (
+    "lines__po_line__request_line__item",
+)
+
+
 @extend_schema_view(
-    get=extend_schema(tags=["Purchases"], responses={200: WarehouseReceiptSerializer, **error_responses(401, 403)}),
+    get=extend_schema(
+        tags=["Purchases"],
+        responses={200: WarehouseReceiptSerializer, **error_responses(401, 403)},
+    ),
 )
 class WarehouseReceiptListView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated, IsWarehouseReceiver]
@@ -491,8 +505,8 @@ class WarehouseReceiptListView(generics.ListAPIView):
     def get_queryset(self):
         qs = (
             WarehouseReceipt.objects.filter(org=self.request.user.profile.org)
-            .select_related("purchase_order")
-            .prefetch_related("lines")
+            .select_related("purchase_order", "warehouse")
+            .prefetch_related(*_RECEIPT_PREFETCH)
             .order_by("-created_at")
         )
         status_filter = self.request.query_params.get("status")
@@ -503,14 +517,63 @@ class WarehouseReceiptListView(generics.ListAPIView):
         return qs
 
 
-@extend_schema(tags=["Purchases"], parameters=[_SLUG], responses={200: WarehouseReceiptSerializer, 404: _NOT_FOUND, **error_responses(401, 403)})
+_EXAMPLE_PENDING_RECEIPT = {
+    "slug": "recv-po-split-buy-acme-supplies",
+    "purchase_order": "po-split-buy-acme-supplies",
+    "warehouse": "warehouse",
+    "status": "pending",
+    "lines": [
+        {
+            "slug": "recv-po-a4-paper",
+            "description": "A4 paper",
+            "quantity": "10.000",
+            "unit": "ream",
+            "item": None,
+            "source_item": "a4-paper",
+            "suggested_items": [
+                {
+                    "slug": "a4-paper",
+                    "name": "A4 paper",
+                    "part_number": "PAP-A4",
+                    "unit": "ream",
+                    "quantity_on_hand": "3.000",
+                }
+            ],
+        }
+    ],
+    "created_at": "2026-09-18T10:00:00Z",
+    "completed_at": None,
+}
+
+
+@extend_schema(
+    tags=["Purchases"],
+    parameters=[_SLUG],
+    responses={
+        200: WarehouseReceiptSerializer,
+        404: _NOT_FOUND,
+        **error_responses(401, 403),
+    },
+    examples=[
+        OpenApiExample(
+            "Pending receipt with catalog match",
+            value=_EXAMPLE_PENDING_RECEIPT,
+            response_only=True,
+            status_codes=["200"],
+        )
+    ],
+)
 class WarehouseReceiptDetailView(generics.RetrieveAPIView):
     permission_classes = [permissions.IsAuthenticated, IsWarehouseReceiver]
     serializer_class = WarehouseReceiptSerializer
     lookup_field = "slug"
 
     def get_queryset(self):
-        return WarehouseReceipt.objects.filter(org=self.request.user.profile.org).prefetch_related("lines")
+        return (
+            WarehouseReceipt.objects.filter(org=self.request.user.profile.org)
+            .select_related("purchase_order", "warehouse")
+            .prefetch_related(*_RECEIPT_PREFETCH)
+        )
 
 
 @extend_schema(tags=["Purchases"], parameters=[_SLUG], request=ReceiptCompleteSerializer, responses={200: WarehouseReceiptSerializer, 400: OpenApiResponse(DetailSerializer), 404: _NOT_FOUND, **error_responses(401, 403)})
@@ -545,7 +608,9 @@ class WarehouseReceiptCompleteView(generics.GenericAPIView):
             )
         except DjangoValidationError as exc:
             return _err(exc)
-        receipt = WarehouseReceipt.objects.prefetch_related("lines").get(pk=receipt.pk)
+        receipt = WarehouseReceipt.objects.prefetch_related(*_RECEIPT_PREFETCH).get(
+            pk=receipt.pk
+        )
         return Response(WarehouseReceiptSerializer(receipt).data)
 
 

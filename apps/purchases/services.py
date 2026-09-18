@@ -59,6 +59,7 @@ ITEM_REQUIRED = "An existing item slug is required to add to stock."
 ITEM_WRONG_WAREHOUSE = "This item is not in the receipt warehouse."
 UNKNOWN_ACTION = "Action must be new_item or add_to_existing."
 PR_NOT_APPROVED = "The purchase request must be approved first."
+SUGGESTED_ITEM_LIMIT = 5
 
 
 def _actor_payload(profile: UserProfile) -> dict:
@@ -85,6 +86,44 @@ def get_org_receipt(*, org: Organization, slug: str) -> WarehouseReceipt:
     return WarehouseReceipt.objects.select_related("purchase_order").get(
         org=org, slug=slug
     )
+
+
+def receipt_source_item(*, line: WarehouseReceiptLine):
+    """Return the PR catalog item when it still lives in the receipt warehouse."""
+    warehouse_id = line.receipt.warehouse_id
+    if not warehouse_id:
+        return None
+    request_line = getattr(line.po_line, "request_line", None)
+    item = getattr(request_line, "item", None)
+    if item is None or item.warehouse_id != warehouse_id:
+        return None
+    return item
+
+
+def suggest_receipt_line_items(*, line: WarehouseReceiptLine) -> list[Item]:
+    """Warehouse items the UI can offer as add-to-existing for this line."""
+    warehouse_id = line.receipt.warehouse_id
+    if not warehouse_id:
+        return []
+    ordered = []
+    seen = set()
+    source = receipt_source_item(line=line)
+    if source is not None and source.is_active:
+        ordered.append(source)
+        seen.add(source.pk)
+    matches = Item.objects.filter(
+        warehouse_id=warehouse_id,
+        is_active=True,
+        name__iexact=line.description,
+    ).order_by("name")[:SUGGESTED_ITEM_LIMIT]
+    for item in matches:
+        if item.pk in seen:
+            continue
+        ordered.append(item)
+        seen.add(item.pk)
+        if len(ordered) >= SUGGESTED_ITEM_LIMIT:
+            break
+    return ordered
 
 
 def _replace_lines(pr: PurchaseRequest, lines: list[dict], org: Organization) -> None:

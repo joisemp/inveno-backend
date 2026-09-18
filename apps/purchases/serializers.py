@@ -17,6 +17,8 @@ from apps.purchases.models import (
 from apps.purchases.services import (
     create_purchase_request,
     create_rfq,
+    receipt_source_item,
+    suggest_receipt_line_items,
     update_purchase_request,
 )
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -281,13 +283,42 @@ class PurchaseInvoiceSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class ReceiptSuggestedItemSerializer(serializers.Serializer):
+    """Catalog row the UI can offer when prompting add-to-existing vs new item."""
+
+    slug = serializers.SlugField()
+    name = serializers.CharField()
+    part_number = serializers.CharField()
+    unit = serializers.CharField()
+    quantity_on_hand = serializers.DecimalField(max_digits=12, decimal_places=3)
+
+
 class ReceiptLineSerializer(serializers.ModelSerializer):
     item = serializers.SlugRelatedField(read_only=True, slug_field="slug")
+    source_item = serializers.SerializerMethodField()
+    suggested_items = serializers.SerializerMethodField()
 
     class Meta:
         model = WarehouseReceiptLine
-        fields = ("slug", "description", "quantity", "unit", "item")
+        fields = (
+            "slug",
+            "description",
+            "quantity",
+            "unit",
+            "item",
+            "source_item",
+            "suggested_items",
+        )
         read_only_fields = fields
+
+    def get_source_item(self, obj) -> str | None:
+        item = receipt_source_item(line=obj)
+        return item.slug if item is not None else None
+
+    def get_suggested_items(self, obj):
+        return ReceiptSuggestedItemSerializer(
+            suggest_receipt_line_items(line=obj), many=True
+        ).data
 
 
 class WarehouseReceiptSerializer(serializers.ModelSerializer):
