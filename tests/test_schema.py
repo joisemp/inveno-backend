@@ -37,6 +37,9 @@ EXPECTED_PATHS = [
     "/api/orgs/items/{slug}/unsuspend/",
     "/api/orgs/items/{slug}/photos/",
     "/api/orgs/items/{slug}/photos/{photo_slug}/",
+    "/api/orgs/items/{slug}/stock/",
+    "/api/orgs/items/{slug}/activity/",
+    "/api/orgs/items/{slug}/activity/{activity_slug}/",
     "/api/orgs/purchase-requests/",
     "/api/orgs/purchase-requests/{slug}/",
     "/api/orgs/purchase-requests/{slug}/submit/",
@@ -168,6 +171,12 @@ def test_items_schema_documents_success_and_errors():
     photos = schema["paths"]["/api/orgs/items/{slug}/photos/"]["post"]["responses"]
     for code in ("201", "400", "401", "403", "404"):
         assert code in photos, f"item photos POST missing response {code}"
+    stock = schema["paths"]["/api/orgs/items/{slug}/stock/"]["post"]["responses"]
+    for code in ("200", "400", "401", "403", "404"):
+        assert code in stock, f"item stock POST missing response {code}"
+    activity = schema["paths"]["/api/orgs/items/{slug}/activity/"]["get"]["responses"]
+    for code in ("200", "400", "401", "403", "404"):
+        assert code in activity, f"item activity GET missing response {code}"
     warehouses = schema["paths"]["/api/orgs/warehouses/"]["post"]["responses"]
     for code in ("201", "400", "401", "403"):
         assert code in warehouses, f"warehouses POST missing response {code}"
