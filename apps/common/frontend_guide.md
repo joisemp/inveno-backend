@@ -55,7 +55,7 @@ Development Docker seeds a **demo org** after migrate so every list screen has r
 | `warehouse@demo.inveno.local` | warehouse_manager |
 | `space@demo.inveno.local` | space_incharge (North Wing) |
 
-On restart, an attached TTY pauses: **k** keep existing dummy data, **w** wipe the demo org and recreate. `docker compose up -d` keeps existing data. Wipe later with `docker compose exec -it api python manage.py seed_demo --reset`. Set `SEED_DEMO=false` to skip seeding.
+On restart, attached `docker compose up` (not `-d`) pauses so you can type **k** (keep) or **w** (wipe and recreate). `-d` keeps existing data. Wipe later with `docker compose exec -it api python manage.py seed_demo --reset`. Set `SEED_DEMO=false` to skip seeding.
 
 Suggested layout:
 

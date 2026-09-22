@@ -47,8 +47,7 @@ cp path/to/inveno-api/docker-compose.frontend-dev.yml .
 # 2. Copy the env example and fill it in
 cp path/to/inveno-api/.env.frontend.example .env.api
 
-# 3. Start the API (attached — first boot seeds demo data; later boots pause
-#    for keep vs wipe if a TTY is attached)
+# 3. Start the API attached (not -d) so you can type k/w if demo data exists
 docker compose -f docker-compose.frontend-dev.yml up
 
 # API is now running at http://localhost:8000
@@ -64,7 +63,7 @@ Demo logins (password for all: `DemoPass123!`):
 | `warehouse@demo.inveno.local` | warehouse_manager |
 | `space@demo.inveno.local` | space_incharge (North Wing) |
 
-Set `SEED_DEMO=false` in `.env.api` to skip seeding. If demo data already exists and you started with `-d` (no TTY), existing rows are kept. To wipe and recreate:
+Set `SEED_DEMO=false` in `.env.api` to skip seeding. Use attached `docker compose up` (not `-d`) so **k** keep / **w** wipe can be typed. `-d` keeps existing rows. To wipe without the prompt:
 
 ```bash
 docker compose -f docker-compose.frontend-dev.yml exec -it api python manage.py seed_demo --reset

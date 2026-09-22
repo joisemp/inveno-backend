@@ -9,7 +9,7 @@
 #   2. Copy .env.frontend.example → .env.api  (get it from the backend repo)
 #   3. Fill in the values in .env.api
 #
-# START:
+# START (attached, not -d — type k/w if demo data already exists):
 #   docker compose -f docker-compose.frontend-dev.yml up
 #
 # API available at:      http://localhost:8000
@@ -52,6 +52,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    attach: false
     restart: unless-stopped
 
   # ── Redis ──────────────────────────────────────────────────────────────────
@@ -62,6 +63,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    attach: false
     restart: unless-stopped
 
   # ── Mailpit (dev email inbox) ───────────────────────────────────────────────
@@ -70,6 +72,7 @@ services:
     ports:
       - "8025:8025"   # web UI  →  http://localhost:8025
       - "1025:1025"   # SMTP    →  Django sends here
+    attach: false
     restart: unless-stopped
 
 volumes:

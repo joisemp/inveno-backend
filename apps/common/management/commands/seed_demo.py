@@ -1,8 +1,9 @@
 """
 Seed a development demo org after migrate.
 
-First boot creates data. If the demo org already exists, pause on a TTY and
-ask whether to keep it or wipe and recreate. Non-TTY keeps existing data.
+First boot creates data. If the demo org already exists, pause and read
+keep vs wipe from /dev/tty (docker compose up with only the API attached).
+When /dev/tty is unavailable, keep existing data.
 """
 import sys
 
@@ -17,8 +18,10 @@ from apps.common.demo import (
     wipe_demo,
 )
 
+_DEV_TTY = "/dev/tty"
 _WIPE_HINT = (
-    "No TTY — keeping existing demo data. Wipe with:\n"
+    "No TTY — keeping existing demo data. Use attached `docker compose up` "
+    "(not -d) to choose keep vs wipe, or:\n"
     "  docker compose exec -it api python manage.py seed_demo --reset"
 )
 
@@ -28,7 +31,7 @@ class Command(BaseCommand):
 
     help = (
         "Seed the demo org (development only). Prompts keep vs wipe when "
-        "demo data already exists and stdin is a TTY."
+        "demo data already exists and /dev/tty is available."
     )
 
     def add_arguments(self, parser):
@@ -81,13 +84,23 @@ class Command(BaseCommand):
     def _should_prompt(self) -> bool:
         if "pytest" in sys.modules:
             return False
-        return bool(sys.stdin and sys.stdin.isatty())
+        try:
+            with open(_DEV_TTY, "r+", encoding="utf-8"):
+                return True
+        except OSError:
+            return False
 
     def _ask_wipe(self) -> bool:
-        self.stdout.write(
+        message = (
             f'\nDemo data already exists (org "{DEMO_ORG_SUFFIX}").\n'
             "  [k] Keep existing data\n"
             "  [w] Wipe demo org and recreate\n"
+            "Choice [k/w]: "
         )
-        raw = input("Choice [k/w]: ").strip().lower()
+        self.stdout.write(message, ending="")
+        self.stdout.flush()
+        with open(_DEV_TTY, "r+", encoding="utf-8") as tty:
+            tty.write(message)
+            tty.flush()
+            raw = tty.readline().strip().lower()
         return raw in {"w", "wipe"}
