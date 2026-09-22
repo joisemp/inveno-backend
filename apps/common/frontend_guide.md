@@ -45,6 +45,18 @@ interface ImportMeta {
 - All auth calls need **`withCredentials: true`** so the httpOnly refresh cookie is sent.
 - Configure `CORS_ALLOWED_ORIGINS` on the API to include your frontend URL.
 
+Development Docker seeds a **demo org** after migrate so every list screen has rows. Password for all accounts: **`DemoPass123!`**.
+
+| Login (email) | Role |
+|---|---|
+| `super@inveno.local` | super_admin (Swagger / this page / Django Admin) |
+| `admin@demo.inveno.local` | central_admin |
+| `ops@demo.inveno.local` | operation_incharge |
+| `warehouse@demo.inveno.local` | warehouse_manager |
+| `space@demo.inveno.local` | space_incharge (North Wing) |
+
+On restart, an attached TTY pauses: **k** keep existing dummy data, **w** wipe the demo org and recreate. `docker compose up -d` keeps existing data. Wipe later with `docker compose exec -it api python manage.py seed_demo --reset`. Set `SEED_DEMO=false` to skip seeding.
+
 Suggested layout:
 
 ```

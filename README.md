@@ -31,17 +31,25 @@ docker compose up --build
 | ReDoc | http://localhost:8000/api/redoc/ |
 | Django Admin | http://localhost:8000/admin/ |
 
-### 3. Create a superuser
+### 3. Demo logins (seeded after migrate)
+
+First boot creates a demo org, catalog, vendors, and purchase-flow rows.
+Later attached starts pause: **k** keep / **w** wipe. Password for all: `DemoPass123!`.
+
+| Login (email) | Role |
+|---|---|
+| `super@inveno.local` | super_admin |
+| `admin@demo.inveno.local` | central_admin |
+| `ops@demo.inveno.local` | operation_incharge |
+| `warehouse@demo.inveno.local` | warehouse_manager |
+| `space@demo.inveno.local` | space_incharge |
 
 ```bash
-# Local dev stack
-docker compose exec api python manage.py createsuperuser
-
-# Frontend dev stack (using the GHCR image)
-docker compose -f docker-compose.frontend-dev.yml exec api python manage.py createsuperuser
-
-# Enter: email, password (no username — email is the login)
+# Wipe and recreate
+docker compose exec -it api python manage.py seed_demo --reset
 ```
+
+Set `SEED_DEMO=false` to skip. Production never seeds.
 
 ### 4. Run tests
 

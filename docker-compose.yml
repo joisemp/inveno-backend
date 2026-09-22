@@ -14,6 +14,8 @@ services:
     env_file: .env
     ports:
       - "8000:8000"
+    stdin_open: true
+    tty: true
     volumes:
       - .:/app          # live reload
       - /app/__pycache__

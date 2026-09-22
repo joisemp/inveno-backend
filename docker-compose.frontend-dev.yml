@@ -27,6 +27,8 @@ services:
     env_file: .env.api
     ports:
       - "8000:8000"
+    stdin_open: true
+    tty: true
     depends_on:
       db:
         condition: service_healthy

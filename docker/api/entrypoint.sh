@@ -30,6 +30,13 @@ if ! python manage.py migrate --noinput; then
   exit 1
 fi
 
+# Demo seed is development-only (command no-ops when DEBUG is false).
+# Celery shares this image/entrypoint — do not prompt or seed workers.
+if [ "$1" != "celery" ]; then
+  echo "==> Demo seed..."
+  python manage.py seed_demo
+fi
+
 echo "==> Collecting static files..."
 python manage.py collectstatic --noinput --clear
 
