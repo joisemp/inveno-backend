@@ -25,7 +25,9 @@ class MyModel(UUIDModel, SlugMixin):
 Every new Django model also inherits `SlugMixin` which adds:
 - `slug = SlugField(max_length=255, unique=True, db_index=True, blank=True)`
 - Auto-filled on first save from `get_slug_source()` via `assign_unique_slug()`
-- Stable once set — never rewritten when the source field changes
+- First slug is `slugify(source)`. A clash becomes `{base}-{YYYYMMDD}-{letter}`
+  (local date only, no time): `jane-doe`, then `jane-doe-20260922-a`, `-b`, `-aa`
+- Existing slugs (including older `-2` suffixes) are never rewritten
 - Readonly in all admin forms
 
 Override `get_slug_source()` to control which field the slug derives from:

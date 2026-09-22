@@ -44,6 +44,9 @@ interface ImportMeta {
 - The browser must call `http://localhost:8000`, **never** `http://api:8000` (Docker-only hostname).
 - All auth calls need **`withCredentials: true`** so the httpOnly refresh cookie is sent.
 - Configure `CORS_ALLOWED_ORIGINS` on the API to include your frontend URL.
+- Resources are identified by **`slug`**, never UUID `id` (except the login
+  user on `/api/auth/me/`). Duplicate names become
+  `{base}-{YYYYMMDD}-{letter}` (local date, no time) — e.g. `jane-doe-20260922-a`.
 
 Development Docker seeds a **demo org** after migrate so every list screen has rows. Password for all accounts: **`DemoPass123!`**.
 

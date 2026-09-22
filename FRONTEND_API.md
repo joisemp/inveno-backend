@@ -87,6 +87,17 @@ Authorization: Bearer <access_token>
 
 ---
 
+## Identifiers
+
+Public JSON and URLs use **`slug` only** — never UUID `id` (the login User on
+`/api/auth/me/` is the existing exception). Slugs are generated. The first
+value is `slugify(name)`. If that is taken, the next is
+`{base}-{YYYYMMDD}-{letter}` using the server's local **date** (no time):
+`jane-doe`, then `jane-doe-20260922-a`, then `-b`, then `-aa`. Existing slugs
+are not rewritten.
+
+---
+
 ## Shared Error Responses
 
 These appear on many endpoints. Individual sections reference them by name.
@@ -2062,3 +2073,4 @@ You will see the full email body including the password reset or Get Started lin
 | 1.5.0 | 2026-09-17 | Spaces, `operation_incharge` / `space_incharge`, item catalog, purchase flow (RFQ, per-line award, PO, QC, warehouse, HMAC trail, PDF/Excel) |
 | 1.6.0 | 2026-09-18 | Warehouses, item categories, catalog fields, WebP photos (max 5), receipts credit a warehouse |
 | 1.7.0 | 2026-09-18 | Receipt GET `source_item` / `suggested_items` so the UI can prompt add-stock vs new item |
+| 1.8.0 | 2026-09-22 | Duplicate slugs use `{base}-{YYYYMMDD}-{letter}` (local date, no time, no `-2`) |

@@ -58,8 +58,10 @@ class TestSlugAutoGeneration:
         )
         assert profile.slug == "alice-smith"
 
-    def test_slug_unique_collision_appends_suffix(self, test_org):
-        """Colliding slug gets -2, -3, etc."""
+    def test_slug_unique_collision_appends_date_letter(self, test_org):
+        """Colliding slug gets {base}-{YYYYMMDD}-{letter}, not -2."""
+        from django.utils import timezone
+
         org2 = Organization.objects.create(name="Org B", org_suffix="org_b")
 
         user1 = User.objects.create_user(email="u1@example.com", password="Pass123!")
@@ -79,7 +81,8 @@ class TestSlugAutoGeneration:
             last_name="Jones",
             org=org2,
         )
-        assert profile2.slug == "bob-jones-2"
+        date_part = timezone.localdate().strftime("%Y%m%d")
+        assert profile2.slug == f"bob-jones-{date_part}-a"
 
     def test_slug_stable_after_name_change(self, test_org):
         """Slug is NOT rewritten when first_name / last_name changes."""
