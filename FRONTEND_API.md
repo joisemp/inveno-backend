@@ -1159,9 +1159,12 @@ PATCH `name` and/or `is_active`.
 ## Items
 
 Warehouse catalog. Each item belongs to **one warehouse**. `quantity_on_hand`
-is **not** writable on create or PATCH — stock changes only when a warehouse
-receipt is completed. `balance_in_stock` equals `quantity_on_hand` until
-reservations exist. Photos are optional (max 5); uploads are stored as WebP.
+is **not** writable on create or PATCH. Add or remove extra stock with
+`POST /api/orgs/items/{slug}/stock/` (required reason). Purchased stock still
+lands when a warehouse receipt is completed (that path stamps last-purchase).
+`balance_in_stock` equals `quantity_on_hand` until reservations exist. Every
+item change is stored on `GET /api/orgs/items/{slug}/activity/`. Photos are
+optional (max 5); uploads are stored as WebP.
 
 List/retrieve: central admin, operation incharge, warehouse manager.
 Create/update/suspend/photos: central admin and warehouse manager. Space
@@ -1299,6 +1302,123 @@ JPEG, PNG, GIF, or WebP in; stored as WebP. Maximum 5 photos per item.
 ```
 
 **Success `204`:** empty body on delete.
+
+---
+
+### Add or remove stock
+
+| | |
+|---|---|
+| **Method / URL** | `POST /api/orgs/items/{slug}/stock/` |
+| **Auth** | Bearer — central admin or warehouse manager |
+
+The item is the path slug. Body has no `id` and no item slug. `quantity` is
+always positive. `remove` cannot take on-hand below 0. Does **not** stamp
+`last_purchase_date` / `last_purchase_quantity`.
+
+**Request — add:**
+```json
+{ "action": "add", "quantity": "12.000", "reason": "Opening balance" }
+```
+
+**Request — remove:**
+```json
+{ "action": "remove", "quantity": "2.000", "reason": "Damaged" }
+```
+
+**Success `200`:** item object with the new `quantity_on_hand` / `balance_in_stock`
+(no `id`).
+
+**Error `400` — insufficient stock:**
+```json
+{ "quantity": ["Insufficient stock."] }
+```
+
+**Error `400` — missing reason:**
+```json
+{ "reason": ["This field is required."] }
+```
+
+---
+
+### List item activity
+
+| | |
+|---|---|
+| **Method / URL** | `GET /api/orgs/items/{slug}/activity/` |
+| **Auth** | Bearer — central admin, operation incharge, or warehouse manager |
+
+Paginated, newest first. Optional `?kind=incoming|outgoing|item_edit`. Slug
+only — no `id`. Stock rows include `previous_quantity`, `quantity`, `delta`.
+`recorded_by.slug` is the member (UserProfile) slug. `reference` is the source
+document (`warehouse_receipt`) when one exists, otherwise this activity.
+
+**Success `200` (one incoming row):**
+```json
+{
+  "slug": "a4-paper-added",
+  "kind": "incoming",
+  "action": "added",
+  "previous_quantity": "0.000",
+  "quantity": "12.000",
+  "delta": "12.000",
+  "recorded_on": "2025-12-20T16:23:00Z",
+  "recorded_by": {
+    "slug": "jefin-james",
+    "full_name": "Jefin James",
+    "user_type": "warehouse_manager"
+  },
+  "remarks": "Opening balance",
+  "reference": { "type": "item_activity", "slug": "a4-paper-added" }
+}
+```
+
+**Error `400` — invalid kind:**
+```json
+{ "kind": ["Must be \"incoming\", \"outgoing\", or \"item_edit\"."] }
+```
+
+---
+
+### Get item activity details
+
+| | |
+|---|---|
+| **Method / URL** | `GET /api/orgs/items/{slug}/activity/{activity_slug}/` |
+| **Auth** | Bearer — central admin, operation incharge, or warehouse manager |
+
+Same fields as the list row plus `payload`. Suspend includes who did it and
+`is_active` from/to. Every row has `recorded_on` (datetime).
+
+**Success `200` — suspended:**
+```json
+{
+  "slug": "a4-paper-suspended",
+  "kind": "item_edit",
+  "action": "suspended",
+  "previous_quantity": null,
+  "quantity": null,
+  "delta": null,
+  "recorded_on": "2025-12-20T16:23:00Z",
+  "recorded_by": {
+    "slug": "jefin-james",
+    "full_name": "Jefin James",
+    "user_type": "warehouse_manager"
+  },
+  "remarks": "Item suspended",
+  "reference": { "type": "item_activity", "slug": "a4-paper-suspended" },
+  "payload": {
+    "is_active": { "from": true, "to": false },
+    "actor": {
+      "slug": "jefin-james",
+      "full_name": "Jefin James",
+      "user_type": "warehouse_manager"
+    }
+  }
+}
+```
+
+**Error `404`:** unknown item or activity slug.
 
 ---
 
@@ -2073,4 +2193,4 @@ You will see the full email body including the password reset or Get Started lin
 | 1.5.0 | 2026-09-17 | Spaces, `operation_incharge` / `space_incharge`, item catalog, purchase flow (RFQ, per-line award, PO, QC, warehouse, HMAC trail, PDF/Excel) |
 | 1.6.0 | 2026-09-18 | Warehouses, item categories, catalog fields, WebP photos (max 5), receipts credit a warehouse |
 | 1.7.0 | 2026-09-18 | Receipt GET `source_item` / `suggested_items` so the UI can prompt add-stock vs new item |
-| 1.8.0 | 2026-09-22 | Duplicate slugs use `{base}-{YYYYMMDD}-{letter}` (local date, no time, no `-2`) |
+| 1.8.0 | 2026-09-22 | Duplicate slugs use `{base}-{YYYYMMDD}-{letter}`; item stock add/remove; item activity log |

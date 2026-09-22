@@ -316,6 +316,26 @@ export type ItemWrite = {
   last_purchase_quantity?: string | null;
 };
 
+export type ItemStockAdjust = {
+  action: "add" | "remove";
+  quantity: string;
+  reason: string;
+};
+
+export type ItemActivity = {
+  slug: string;
+  kind: "incoming" | "outgoing" | "item_edit";
+  action: string;
+  previous_quantity: string | null;
+  quantity: string | null;
+  delta: string | null;
+  recorded_on: string;
+  recorded_by: { slug: string; full_name: string; user_type: string };
+  remarks: string;
+  reference: { type: string; slug: string };
+  payload?: Record<string, unknown>;
+};
+
 export type PurchaseRequestLine = {
   slug: string;
   description: string;
@@ -517,8 +537,10 @@ import { clearAccessToken, getAccessToken, setAccessToken } from "./auth";
 import type {
   AccessTokenResponse,
   Item,
+  ItemActivity,
   ItemCategory,
   ItemPhoto,
+  ItemStockAdjust,
   ItemWrite,
   MeResponse,
   OrgAssignableUserType,
@@ -905,6 +927,29 @@ export async function createItemPhoto(itemSlug: string, file: File) {
 
 export async function deleteItemPhoto(itemSlug: string, photoSlug: string) {
   await api.delete(`/api/orgs/items/${itemSlug}/photos/${photoSlug}/`);
+}
+
+export async function adjustItemStock(slug: string, body: ItemStockAdjust) {
+  const { data } = await api.post<Item>(`/api/orgs/items/${slug}/stock/`, body);
+  return data;
+}
+
+export async function listItemActivity(
+  slug: string,
+  params?: { kind?: "incoming" | "outgoing" | "item_edit"; page?: number },
+) {
+  const { data } = await api.get<Paginated<ItemActivity>>(
+    `/api/orgs/items/${slug}/activity/`,
+    { params },
+  );
+  return data;
+}
+
+export async function getItemActivity(itemSlug: string, activitySlug: string) {
+  const { data } = await api.get<ItemActivity>(
+    `/api/orgs/items/${itemSlug}/activity/${activitySlug}/`,
+  );
+  return data;
 }
 
 // ── Purchase requests ────────────────────────────────────────────────────────
