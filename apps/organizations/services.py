@@ -122,7 +122,8 @@ def create_org_with_central_admin(
     Steps
     -----
     1. Create Organisation (slug auto-generated).
-    2. Delegate user + profile + optional welcome email to create_org_user().
+    2. Create a default warehouse named "Warehouse".
+    3. Delegate user + profile + optional welcome email to create_org_user().
 
     Returns
     -------
@@ -135,11 +136,14 @@ def create_org_with_central_admin(
     Any exception from send_welcome_email propagates (wrapped in the
     atomic transaction so DB changes are rolled back).
     """
+    from apps.inventory.services import DEFAULT_WAREHOUSE_NAME, create_warehouse
+
     org = Organization.objects.create(
         name=org_name,
         org_suffix=org_suffix,
         location=location,
     )
+    create_warehouse(org=org, name=DEFAULT_WAREHOUSE_NAME)
 
     user = create_org_user(
         org=org,

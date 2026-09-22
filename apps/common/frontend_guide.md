@@ -45,6 +45,18 @@ interface ImportMeta {
 - All auth calls need **`withCredentials: true`** so the httpOnly refresh cookie is sent.
 - Configure `CORS_ALLOWED_ORIGINS` on the API to include your frontend URL.
 
+Development Docker seeds a **demo org** after migrate so every list screen has rows. Password for all accounts: **`DemoPass123!`**.
+
+| Login (email) | Role |
+|---|---|
+| `super@inveno.local` | super_admin (Swagger / this page / Django Admin) |
+| `admin@demo.inveno.local` | central_admin |
+| `ops@demo.inveno.local` | operation_incharge |
+| `warehouse@demo.inveno.local` | warehouse_manager |
+| `space@demo.inveno.local` | space_incharge (North Wing) |
+
+On restart, an attached TTY pauses: **k** keep existing dummy data, **w** wipe the demo org and recreate. `docker compose up -d` keeps existing data. Wipe later with `docker compose exec -it api python manage.py seed_demo --reset`. Set `SEED_DEMO=false` to skip seeding.
+
 Suggested layout:
 
 ```
@@ -85,7 +97,7 @@ hint for first paint only. For space incharges, `profile.space` is
 | Screen | Roles |
 |---|---|
 | Members / spaces admin | `central_admin` |
-| Vendors / items | `central_admin`, `operation_incharge`, `warehouse_manager` |
+| Vendors / items / warehouses | `central_admin`, `operation_incharge`, `warehouse_manager` |
 | Purchase requests | `space_incharge` (with space), `operation_incharge`, `central_admin` |
 | RFQ / PO / QC / invoice | `operation_incharge`, `central_admin` |
 | Warehouse receipts | `warehouse_manager`, `central_admin` |
@@ -238,21 +250,67 @@ export type VendorWrite = {
   website?: string;
 };
 
-export type Item = {
+export type Warehouse = {
   slug: string;
   name: string;
-  sku: string;
+  location: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WarehouseWrite = {
+  name: string;
+  location?: string;
+  is_active?: boolean;
+};
+
+export type ItemCategory = {
+  slug: string;
+  name: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ItemPhoto = {
+  slug: string;
+  url: string;
+};
+
+export type Item = {
+  slug: string;
+  warehouse: string;
+  name: string;
+  description: string;
+  part_number: string;
+  alternate_part_number: string;
   unit: string;
+  category: string | null;
+  location: string;
+  remarks: string;
   quantity_on_hand: string;
+  balance_in_stock: string;
+  last_purchase_date: string | null;
+  last_purchase_quantity: string | null;
+  photos: ItemPhoto[];
   is_active: boolean;
   created_at: string;
   updated_at: string;
 };
 
 export type ItemWrite = {
+  warehouse: string;
   name: string;
-  sku: string;
   unit: string;
+  description?: string;
+  part_number?: string;
+  alternate_part_number?: string;
+  category?: string | null;
+  location?: string;
+  remarks?: string;
+  last_purchase_date?: string | null;
+  last_purchase_quantity?: string | null;
 };
 
 export type PurchaseRequestLine = {
@@ -342,17 +400,28 @@ export type PurchaseInvoice = {
   created_at: string;
 };
 
+export type WarehouseReceiptSuggestedItem = {
+  slug: string;
+  name: string;
+  part_number: string;
+  unit: string;
+  quantity_on_hand: string;
+};
+
 export type WarehouseReceiptLine = {
   slug: string;
   description: string;
   quantity: string;
   unit: string;
   item: string | null;
+  source_item: string | null;
+  suggested_items: WarehouseReceiptSuggestedItem[];
 };
 
 export type WarehouseReceipt = {
   slug: string;
   purchase_order: string;
+  warehouse: string | null;
   status: string;
   lines: WarehouseReceiptLine[];
   created_at: string;
@@ -445,6 +514,8 @@ import { clearAccessToken, getAccessToken, setAccessToken } from "./auth";
 import type {
   AccessTokenResponse,
   Item,
+  ItemCategory,
+  ItemPhoto,
   ItemWrite,
   MeResponse,
   OrgAssignableUserType,
@@ -459,7 +530,10 @@ import type {
   Space,
   Vendor,
   VendorWrite,
+  Warehouse,
   WarehouseReceipt,
+  WarehouseReceiptLine,
+  WarehouseWrite,
 } from "./types";
 
 const baseURL = import.meta.env.VITE_API_URL;
@@ -732,12 +806,61 @@ export async function unsuspendVendor(slug: string) {
   return data;
 }
 
-// ── Items ────────────────────────────────────────────────────────────────────
+// ── Warehouses ───────────────────────────────────────────────────────────────
 
-export async function listItems(status?: "active" | "suspended") {
-  const { data } = await api.get<Paginated<Item>>("/api/orgs/items/", {
+export async function listWarehouses(status?: "active" | "suspended") {
+  const { data } = await api.get<Paginated<Warehouse>>("/api/orgs/warehouses/", {
     params: status ? { status } : undefined,
   });
+  return data;
+}
+
+export async function createWarehouse(body: WarehouseWrite) {
+  const { data } = await api.post<Warehouse>("/api/orgs/warehouses/", body);
+  return data;
+}
+
+export async function getWarehouse(slug: string) {
+  const { data } = await api.get<Warehouse>(`/api/orgs/warehouses/${slug}/`);
+  return data;
+}
+
+export async function updateWarehouse(slug: string, body: Partial<WarehouseWrite>) {
+  const { data } = await api.patch<Warehouse>(`/api/orgs/warehouses/${slug}/`, body);
+  return data;
+}
+
+// ── Item categories ──────────────────────────────────────────────────────────
+
+export async function listItemCategories() {
+  const { data } = await api.get<Paginated<ItemCategory>>("/api/orgs/item-categories/");
+  return data;
+}
+
+export async function createItemCategory(body: { name: string }) {
+  const { data } = await api.post<ItemCategory>("/api/orgs/item-categories/", body);
+  return data;
+}
+
+export async function updateItemCategory(
+  slug: string,
+  body: { name?: string; is_active?: boolean },
+) {
+  const { data } = await api.patch<ItemCategory>(
+    `/api/orgs/item-categories/${slug}/`,
+    body,
+  );
+  return data;
+}
+
+// ── Items ────────────────────────────────────────────────────────────────────
+
+export async function listItems(params?: {
+  status?: "active" | "suspended";
+  warehouse?: string;
+  page?: number;
+}) {
+  const { data } = await api.get<Paginated<Item>>("/api/orgs/items/", { params });
   return data;
 }
 
@@ -764,6 +887,21 @@ export async function suspendItem(slug: string) {
 export async function unsuspendItem(slug: string) {
   const { data } = await api.post<{ detail: string }>(`/api/orgs/items/${slug}/unsuspend/`);
   return data;
+}
+
+export async function createItemPhoto(itemSlug: string, file: File) {
+  const form = new FormData();
+  form.append("image", file);
+  const { data } = await api.post<ItemPhoto>(
+    `/api/orgs/items/${itemSlug}/photos/`,
+    form,
+    { headers: { "Content-Type": "multipart/form-data" } },
+  );
+  return data;
+}
+
+export async function deleteItemPhoto(itemSlug: string, photoSlug: string) {
+  await api.delete(`/api/orgs/items/${itemSlug}/photos/${photoSlug}/`);
 }
 
 // ── Purchase requests ────────────────────────────────────────────────────────
@@ -954,20 +1092,43 @@ export async function getWarehouseReceipt(slug: string) {
 
 export async function completeWarehouseReceipt(
   slug: string,
-  lines: {
-    line: string;
-    action: "new_item" | "add_to_existing";
-    item?: string;
-    name?: string;
-    sku?: string;
-    unit?: string;
-  }[],
+  body: {
+    warehouse?: string;
+    lines: {
+      line: string;
+      action: "new_item" | "add_to_existing";
+      item?: string;
+      name?: string;
+      part_number?: string;
+      unit?: string;
+    }[];
+  },
 ) {
   const { data } = await api.post<WarehouseReceipt>(
     `/api/orgs/warehouse/receipts/${slug}/complete/`,
-    { lines },
+    body,
   );
   return data;
+}
+
+/** Map one pending line after the user chooses add-stock vs create-new. */
+export function receiptLineAction(
+  line: WarehouseReceiptLine,
+  addToExisting: boolean,
+) {
+  if (addToExisting && line.suggested_items[0]) {
+    return {
+      line: line.slug,
+      action: "add_to_existing" as const,
+      item: line.suggested_items[0].slug,
+    };
+  }
+  return {
+    line: line.slug,
+    action: "new_item" as const,
+    name: line.description,
+    unit: line.unit,
+  };
 }
 
 // ── Process trail verify ─────────────────────────────────────────────────────
@@ -1247,6 +1408,8 @@ export function GetStartedPage() {
 
 Use `forgotPassword(email)` then `/reset-password?uid=...&token=...` with
 `resetPasswordConfirm({ uid, token, new_password, new_password2 })`.
+Confirming a reset blacklists outstanding refresh tokens; the user must log in
+again.
 
 ### Change password
 
@@ -1255,6 +1418,28 @@ After success the API clears the refresh cookie — redirect to `/login`:
 ```tsx
 await changePassword({ old_password, new_password, new_password2 });
 navigate("/login");
+```
+
+### Complete warehouse receipt
+
+`GET` pending lines include `suggested_items`. If that array is non-empty, ask
+whether to add stock to the match or create a new catalog item. If empty, only
+offer create-new. Then `POST` complete with **every** line.
+
+```tsx
+const receipt = await getWarehouseReceipt(slug);
+const lines = receipt.lines.map((line) => {
+  const addToExisting =
+    line.suggested_items.length > 0 &&
+    window.confirm(
+      `${line.suggested_items[0].name} already exists in this warehouse. Add stock to it?`,
+    );
+  return receiptLineAction(line, addToExisting);
+});
+await completeWarehouseReceipt(receipt.slug, {
+  warehouse: receipt.warehouse ?? undefined,
+  lines,
+});
 ```
 
 ---
@@ -1308,6 +1493,6 @@ Gate org UI with any org-assignable `user_type` and `org?.is_active`.
 6. Public resources use **slug**, never UUID, in URLs and payloads.
 7. No public self-registration — users come from org member API or admin.
 8. PDF/XLSX downloads use `responseType: 'blob'` with Bearer — not plain `<a href>`.
-9. Change password / logout clears session; user must log in again after password change.
+9. Change password, forgot-password confirm, and logout revoke refresh sessions; the user must log in again after a password change or reset.
 
 Per-endpoint request and response JSON: see [`FRONTEND_API.md`](../../FRONTEND_API.md).

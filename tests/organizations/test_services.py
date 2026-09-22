@@ -40,6 +40,9 @@ class TestCreateOrgWithCentralAdmin:
         assert profile.user_type == UserProfile.UserType.CENTRAL_ADMIN
         assert profile.org == org
         assert profile.first_name == "Alice"
+        from apps.inventory.models import Warehouse
+
+        assert Warehouse.objects.filter(org=org, name="Warehouse").count() == 1
 
     def test_user_has_unusable_password(self):
         _, user = create_org_with_central_admin(

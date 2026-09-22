@@ -1,4 +1,4 @@
-"""API views for the org item catalog."""
+"""API views for the org item catalog and photos."""
 from django.core.exceptions import ValidationError as DjangoValidationError
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
@@ -12,9 +12,11 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 
 from apps.common.openapi import EmptySerializer, detail_response, error_responses
-from apps.inventory.models import Item
+from apps.inventory.models import Item, ItemPhoto, Warehouse
 from apps.inventory.serializers import (
     ItemCreateSerializer,
+    ItemPhotoCreateSerializer,
+    ItemPhotoSerializer,
     ItemSerializer,
     ItemUpdateSerializer,
 )
@@ -23,6 +25,9 @@ from apps.inventory.services import (
     ITEM_SUSPENDED,
     ITEM_UNSUSPENDED,
     NOT_SUSPENDED,
+    PHOTO_LIMIT,
+    add_item_photo,
+    delete_item_photo,
     suspend_item,
     unsuspend_item,
 )
@@ -30,6 +35,7 @@ from apps.organizations.permissions import IsItemReader, IsItemWriter
 
 ITEM_STATUS_VALUES = ("active", "suspended")
 INVALID_STATUS = 'Must be "active" or "suspended".'
+UNKNOWN_WAREHOUSE = "Unknown warehouse."
 
 
 def field_error_response(*examples):
@@ -57,10 +63,20 @@ def _detail_from_validation_error(exc: DjangoValidationError) -> str:
 
 _EXAMPLE_ITEM = {
     "slug": "a4-paper",
+    "warehouse": "warehouse",
     "name": "A4 paper",
-    "sku": "PAP-A4",
+    "description": "80gsm copier paper",
+    "part_number": "PAP-A4",
+    "alternate_part_number": "",
     "unit": "ream",
+    "category": "stationery",
+    "location": "Aisle 2 / Bin 4",
+    "remarks": "",
     "quantity_on_hand": "0.000",
+    "balance_in_stock": "0.000",
+    "last_purchase_date": None,
+    "last_purchase_quantity": None,
+    "photos": [],
     "is_active": True,
     "created_at": "2026-09-17T10:00:00Z",
     "updated_at": "2026-09-17T10:00:00Z",
@@ -71,6 +87,13 @@ _SLUG_PARAM = OpenApiParameter(
     type=OpenApiTypes.STR,
     location=OpenApiParameter.PATH,
     description="Item slug.",
+)
+
+_PHOTO_SLUG_PARAM = OpenApiParameter(
+    name="photo_slug",
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.PATH,
+    description="Photo slug.",
 )
 
 _NOT_FOUND = detail_response(
@@ -92,7 +115,14 @@ _NOT_FOUND = detail_response(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 enum=list(ITEM_STATUS_VALUES),
-            )
+            ),
+            OpenApiParameter(
+                name="warehouse",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by warehouse slug.",
+            ),
         ],
         responses={
             200: ItemSerializer(many=True),
@@ -102,7 +132,13 @@ _NOT_FOUND = detail_response(
                     value={"status": [INVALID_STATUS]},
                     response_only=True,
                     status_codes=["400"],
-                )
+                ),
+                OpenApiExample(
+                    "Unknown warehouse",
+                    value={"warehouse": [UNKNOWN_WAREHOUSE]},
+                    response_only=True,
+                    status_codes=["400"],
+                ),
             ),
             **error_responses(401, 403),
         },
@@ -117,6 +153,12 @@ _NOT_FOUND = detail_response(
                 OpenApiExample(
                     "Duplicate name",
                     value={"name": ["An item with this name already exists."]},
+                    response_only=True,
+                    status_codes=["400"],
+                ),
+                OpenApiExample(
+                    "Warehouse required",
+                    value={"warehouse": ["A warehouse is required."]},
                     response_only=True,
                     status_codes=["400"],
                 ),
@@ -144,12 +186,21 @@ class ItemListCreateView(generics.ListCreateAPIView):
         return [permissions.IsAuthenticated(), IsItemReader()]
 
     def get_queryset(self):
-        qs = Item.objects.filter(org=self.request.user.profile.org).order_by("name")
+        org = self.request.user.profile.org
+        qs = (
+            Item.objects.filter(org=org)
+            .select_related("warehouse", "category")
+            .prefetch_related("photos")
+            .order_by("name")
+        )
         item_status = self.request.query_params.get("status")
         if item_status == "active":
-            return qs.filter(is_active=True)
-        if item_status == "suspended":
-            return qs.filter(is_active=False)
+            qs = qs.filter(is_active=True)
+        elif item_status == "suspended":
+            qs = qs.filter(is_active=False)
+        warehouse_slug = self.request.query_params.get("warehouse")
+        if warehouse_slug:
+            qs = qs.filter(warehouse__slug=warehouse_slug)
         return qs
 
     def list(self, request, *args, **kwargs):
@@ -159,6 +210,14 @@ class ItemListCreateView(generics.ListCreateAPIView):
                 {"status": [INVALID_STATUS]},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        warehouse_slug = request.query_params.get("warehouse")
+        if warehouse_slug:
+            org = request.user.profile.org
+            if not Warehouse.objects.filter(org=org, slug=warehouse_slug).exists():
+                return Response(
+                    {"warehouse": [UNKNOWN_WAREHOUSE]},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
         return super().list(request, *args, **kwargs)
 
     def get_serializer_class(self):
@@ -175,7 +234,10 @@ class ItemListCreateView(generics.ListCreateAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         item = serializer.save()
-        return Response(ItemSerializer(item).data, status=status.HTTP_201_CREATED)
+        return Response(
+            ItemSerializer(item, context=self.get_serializer_context()).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 @extend_schema_view(
@@ -219,7 +281,11 @@ class ItemRetrieveUpdateView(generics.RetrieveUpdateAPIView):
         return [permissions.IsAuthenticated(), IsItemReader()]
 
     def get_queryset(self):
-        return Item.objects.filter(org=self.request.user.profile.org)
+        return (
+            Item.objects.filter(org=self.request.user.profile.org)
+            .select_related("warehouse", "category")
+            .prefetch_related("photos")
+        )
 
     def get_serializer_class(self):
         if self.request.method == "PATCH":
@@ -236,7 +302,7 @@ class ItemRetrieveUpdateView(generics.RetrieveUpdateAPIView):
         serializer = self.get_serializer(item, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         item = serializer.save()
-        return Response(ItemSerializer(item).data)
+        return Response(ItemSerializer(item, context=self.get_serializer_context()).data)
 
 
 class _ItemStatusView(generics.GenericAPIView):
@@ -309,3 +375,92 @@ class ItemSuspendView(_ItemStatusView):
 class ItemUnsuspendView(_ItemStatusView):
     service = staticmethod(unsuspend_item)
     success_detail = ITEM_UNSUSPENDED
+
+
+@extend_schema(
+    tags=["Items"],
+    summary="Upload an item photo",
+    parameters=[_SLUG_PARAM],
+    request=ItemPhotoCreateSerializer,
+    responses={
+        201: ItemPhotoSerializer,
+        400: field_error_response(
+            OpenApiExample(
+                "Photo limit",
+                value={"detail": PHOTO_LIMIT},
+                response_only=True,
+                status_codes=["400"],
+            ),
+            OpenApiExample(
+                "Invalid image",
+                value={"image": ["Upload a valid image."]},
+                response_only=True,
+                status_codes=["400"],
+            ),
+        ),
+        404: _NOT_FOUND,
+        **error_responses(401, 403),
+    },
+)
+class ItemPhotoCreateView(generics.GenericAPIView):
+    """Multipart photo upload. Stored as WebP; maximum five per item."""
+
+    permission_classes = [permissions.IsAuthenticated, IsItemWriter]
+    serializer_class = ItemPhotoCreateSerializer
+    lookup_field = "slug"
+    lookup_url_kwarg = "slug"
+
+    def get_queryset(self):
+        return Item.objects.filter(org=self.request.user.profile.org)
+
+    def post(self, request, *args, **kwargs):
+        item = self.get_object()
+        serializer = self.get_serializer(
+            data=request.data, context={"item": item, "request": request}
+        )
+        serializer.is_valid(raise_exception=True)
+        try:
+            photo = add_item_photo(
+                item=item, uploaded_file=serializer.validated_data["image"]
+            )
+        except DjangoValidationError as exc:
+            return Response(
+                {"detail": _detail_from_validation_error(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(
+            ItemPhotoSerializer(photo, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+@extend_schema(
+    tags=["Items"],
+    summary="Delete an item photo",
+    parameters=[_SLUG_PARAM, _PHOTO_SLUG_PARAM],
+    request=EmptySerializer,
+    responses={
+        204: OpenApiResponse(description="Photo deleted."),
+        404: _NOT_FOUND,
+        **error_responses(401, 403),
+    },
+)
+class ItemPhotoDeleteView(generics.GenericAPIView):
+    """Delete one photo from an item."""
+
+    permission_classes = [permissions.IsAuthenticated, IsItemWriter]
+    serializer_class = EmptySerializer
+    lookup_field = "slug"
+    lookup_url_kwarg = "slug"
+
+    def get_queryset(self):
+        return Item.objects.filter(org=self.request.user.profile.org)
+
+    def delete(self, request, *args, **kwargs):
+        item = self.get_object()
+        photo_slug = kwargs["photo_slug"]
+        try:
+            delete_item_photo(item=item, photo_slug=photo_slug)
+        except ItemPhoto.DoesNotExist:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(status=status.HTTP_204_NO_CONTENT)

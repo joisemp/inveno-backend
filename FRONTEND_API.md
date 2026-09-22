@@ -47,10 +47,27 @@ cp path/to/inveno-api/docker-compose.frontend-dev.yml .
 # 2. Copy the env example and fill it in
 cp path/to/inveno-api/.env.frontend.example .env.api
 
-# 3. Start the API
+# 3. Start the API (attached — first boot seeds demo data; later boots pause
+#    for keep vs wipe if a TTY is attached)
 docker compose -f docker-compose.frontend-dev.yml up
 
 # API is now running at http://localhost:8000
+```
+
+Demo logins (password for all: `DemoPass123!`):
+
+| Login (email) | Role |
+|---|---|
+| `super@inveno.local` | super_admin (Swagger / Django Admin) |
+| `admin@demo.inveno.local` | central_admin |
+| `ops@demo.inveno.local` | operation_incharge |
+| `warehouse@demo.inveno.local` | warehouse_manager |
+| `space@demo.inveno.local` | space_incharge (North Wing) |
+
+Set `SEED_DEMO=false` in `.env.api` to skip seeding. If demo data already exists and you started with `-d` (no TTY), existing rows are kept. To wipe and recreate:
+
+```bash
+docker compose -f docker-compose.frontend-dev.yml exec -it api python manage.py seed_demo --reset
 ```
 
 ---
@@ -312,6 +329,8 @@ Access tokens expire in **15 minutes**. Call refresh with the httpOnly cookie (n
 }
 ```
 
+**Error `429`:** see [Shared Error Responses](#429--rate-limited)
+
 ---
 
 ### 4. Verify Token
@@ -364,6 +383,8 @@ Blacklists the refresh cookie and clears it from the browser.
 ```
 
 The response clears the `inveno_refresh` cookie. Bearer access is **not** required (works with an expired access token).
+
+**Error `429`:** see [Shared Error Responses](#429--rate-limited)
 
 ---
 
@@ -1038,14 +1059,103 @@ No request body.
 
 ---
 
+## Warehouses
+
+Org storage locations. Purchases land here first; issuing stock to Spaces is a
+later API. Public identifier is **`slug`**. List/retrieve: central admin,
+operation incharge, warehouse manager. Create/update: central admin and
+warehouse manager. Space incharges receive `403`.
+
+Registering an org auto-creates a warehouse named `Warehouse`.
+
+### List / Create Warehouses
+
+| | |
+|---|---|
+| **Method / URL** | `GET / POST /api/orgs/warehouses/` |
+| **Auth GET** | Bearer — central admin, operation incharge, or warehouse manager |
+| **Auth POST** | Bearer — central admin or warehouse manager |
+
+Paginated. Optional `status=active` or `status=suspended`.
+
+**Request (POST):**
+```json
+{ "name": "South store", "location": "Dock 2" }
+```
+
+**Success `201`:**
+```json
+{
+  "slug": "south-store",
+  "name": "South store",
+  "location": "Dock 2",
+  "is_active": true,
+  "created_at": "2026-09-17T10:00:00Z",
+  "updated_at": "2026-09-17T10:00:00Z"
+}
+```
+
+**Error `400` — duplicate name:**
+```json
+{ "name": ["A warehouse with this name already exists."] }
+```
+
+### Get / Update Warehouse
+
+| | |
+|---|---|
+| **GET / PATCH** | `/api/orgs/warehouses/{slug}/` |
+| **Auth GET** | Bearer — central admin, operation incharge, or warehouse manager |
+| **Auth PATCH** | Bearer — central admin or warehouse manager |
+
+PATCH any subset of `name`, `location`, `is_active`.
+
+---
+
+## Item categories
+
+Reusable org-wide categories. Items in different warehouses can share one.
+
+### List / Create Categories
+
+| | |
+|---|---|
+| **Method / URL** | `GET / POST /api/orgs/item-categories/` |
+| **Auth GET** | Bearer — central admin, operation incharge, or warehouse manager |
+| **Auth POST** | Bearer — central admin or warehouse manager |
+
+**Request (POST):**
+```json
+{ "name": "Stationery" }
+```
+
+**Success `201`:** `{ "slug": "stationery", "name": "Stationery", "is_active": true, "created_at": "...", "updated_at": "..." }`
+
+**Error `400` — duplicate name:**
+```json
+{ "name": ["A category with this name already exists."] }
+```
+
+### Get / Update Category
+
+| | |
+|---|---|
+| **GET / PATCH** | `/api/orgs/item-categories/{slug}/` |
+
+PATCH `name` and/or `is_active`.
+
+---
+
 ## Items
 
-Warehouse catalog at org level. `quantity_on_hand` is **not** writable on create
-or PATCH — stock changes only when a warehouse receipt is completed.
+Warehouse catalog. Each item belongs to **one warehouse**. `quantity_on_hand`
+is **not** writable on create or PATCH — stock changes only when a warehouse
+receipt is completed. `balance_in_stock` equals `quantity_on_hand` until
+reservations exist. Photos are optional (max 5); uploads are stored as WebP.
 
 List/retrieve: central admin, operation incharge, warehouse manager.
-Create/update/suspend: central admin and warehouse manager. Space incharges
-receive `403`. Public identifier is **`slug`**.
+Create/update/suspend/photos: central admin and warehouse manager. Space
+incharges receive `403`. Public identifier is **`slug`**.
 
 ### List Items
 
@@ -1054,7 +1164,8 @@ receive `403`. Public identifier is **`slug`**.
 | **Method / URL** | `GET /api/orgs/items/` |
 | **Auth** | Bearer — central admin, operation incharge, or warehouse manager |
 
-Paginated. Optional `status=active` or `status=suspended`.
+Paginated. Optional `status=active` or `status=suspended`. Optional
+`warehouse={slug}`.
 
 **Success `200`:**
 ```json
@@ -1065,10 +1176,20 @@ Paginated. Optional `status=active` or `status=suspended`.
   "results": [
     {
       "slug": "a4-paper",
+      "warehouse": "warehouse",
       "name": "A4 paper",
-      "sku": "PAP-A4",
+      "description": "80gsm copier paper",
+      "part_number": "PAP-A4",
+      "alternate_part_number": "",
       "unit": "ream",
+      "category": "stationery",
+      "location": "Aisle 2 / Bin 4",
+      "remarks": "",
       "quantity_on_hand": "0.000",
+      "balance_in_stock": "0.000",
+      "last_purchase_date": null,
+      "last_purchase_quantity": null,
+      "photos": [],
       "is_active": true,
       "created_at": "2026-09-17T10:00:00Z",
       "updated_at": "2026-09-17T10:00:00Z"
@@ -1082,6 +1203,11 @@ Paginated. Optional `status=active` or `status=suspended`.
 { "status": ["Must be \"active\" or \"suspended\"."] }
 ```
 
+**Error `400` — unknown warehouse filter:**
+```json
+{ "warehouse": ["Unknown warehouse."] }
+```
+
 ---
 
 ### Create Item
@@ -1091,18 +1217,36 @@ Paginated. Optional `status=active` or `status=suspended`.
 | **Method / URL** | `POST /api/orgs/items/` |
 | **Auth** | Bearer — central admin or warehouse manager |
 
-`slug` is generated. `quantity_on_hand` is ignored if sent.
+`slug` is generated. `warehouse` is required (slug). `quantity_on_hand` is
+ignored if sent. Name and `part_number` (when non-blank) are unique per
+warehouse.
 
 **Request:**
 ```json
-{ "name": "A4 paper", "sku": "PAP-A4", "unit": "ream" }
+{
+  "warehouse": "warehouse",
+  "name": "A4 paper",
+  "description": "80gsm copier paper",
+  "part_number": "PAP-A4",
+  "alternate_part_number": "",
+  "unit": "ream",
+  "category": "stationery",
+  "location": "Aisle 2 / Bin 4",
+  "remarks": ""
+}
 ```
 
-**Success `201`:** item object with `"quantity_on_hand": "0.000"`.
+**Success `201`:** item object with `"quantity_on_hand": "0.000"` and
+`"photos": []`.
 
 **Error `400` — duplicate name:**
 ```json
 { "name": ["An item with this name already exists."] }
+```
+
+**Error `400` — missing warehouse:**
+```json
+{ "warehouse": ["This field is required."] }
 ```
 
 ---
@@ -1115,9 +1259,36 @@ Paginated. Optional `status=active` or `status=suspended`.
 | **Auth GET** | Bearer — central admin, operation incharge, or warehouse manager |
 | **Auth PATCH** | Bearer — central admin or warehouse manager |
 
-PATCH any subset of `name`, `sku`, `unit`. `quantity_on_hand` is not writable.
+PATCH any subset of `warehouse`, `name`, `description`, `part_number`,
+`alternate_part_number`, `unit`, `category`, `location`, `remarks`,
+`last_purchase_date`, `last_purchase_quantity`. `quantity_on_hand` is not
+writable. Last-purchase fields also auto-update when a receipt is completed.
 
 **Success `200`:** item object (no `id`).
+
+---
+
+### Item photos
+
+| | |
+|---|---|
+| **POST** | `/api/orgs/items/{slug}/photos/` (multipart field `image`) |
+| **DELETE** | `/api/orgs/items/{slug}/photos/{photo_slug}/` |
+| **Auth** | Bearer — central admin or warehouse manager |
+
+JPEG, PNG, GIF, or WebP in; stored as WebP. Maximum 5 photos per item.
+
+**Success `201`:**
+```json
+{ "slug": "aisle-bin", "url": "http://localhost:8000/media/items/2026/09/aisle-bin.webp" }
+```
+
+**Error `400` — sixth photo:**
+```json
+{ "detail": "An item can have at most 5 photos." }
+```
+
+**Success `204`:** empty body on delete.
 
 ---
 
@@ -1379,23 +1550,72 @@ Exports: `/api/orgs/purchase-orders/{slug}/export/?format=pdf|xlsx` and
 
 Optional `?status=pending` or `completed`.
 
+Each pending line includes prompt fields for the warehouse UI:
+
+- `source_item` — original PR catalog item slug when it still belongs to the
+  receipt warehouse; otherwise `null`
+- `suggested_items` — up to 5 active items in that warehouse whose `name`
+  matches the line `description` (case-insensitive), including `source_item`
+  when present. Empty when the receipt has no warehouse yet (re-GET after
+  sending `warehouse` on complete, or when the org has one warehouse so it is
+  set at QC)
+
+**Success `200` (pending line excerpt):**
+```json
+{
+  "slug": "recv-po-a4-paper",
+  "description": "A4 paper",
+  "quantity": "10.000",
+  "unit": "ream",
+  "item": null,
+  "source_item": "a4-paper",
+  "suggested_items": [
+    {
+      "slug": "a4-paper",
+      "name": "A4 paper",
+      "part_number": "PAP-A4",
+      "unit": "ream",
+      "quantity_on_hand": "3.000"
+    }
+  ]
+}
+```
+
+Prompt:
+
+- `suggested_items` present → ask whether to add stock to that item or create a
+  new catalog item
+- empty → only offer create as a new item (confirm)
+
 **Complete** `POST /api/orgs/warehouse/receipts/{slug}/complete/` — every receipt
-line must be included. Mix `new_item` and `add_to_existing` per line.
+line must be included. Mix `new_item` and `add_to_existing` per line. Stock is
+always credited to the receipt warehouse (never a Space). If the org has one
+active warehouse, it is set when the receipt is created; otherwise send
+`warehouse`.
 
 ```json
 {
+  "warehouse": "warehouse",
   "lines": [
-    { "line": "a4-receipt-line", "action": "new_item", "name": "A4 paper stock", "unit": "ream" },
+    { "line": "a4-receipt-line", "action": "new_item", "name": "A4 paper stock", "unit": "ream", "part_number": "PAP-A4" },
     { "line": "pens-receipt-line", "action": "add_to_existing", "item": "blue-pens" }
   ]
 }
 ```
 
-**Success `200`:** receipt with `"status": "completed"` and `item` slugs filled.
+**Success `200`:** receipt with `"status": "completed"`, `"warehouse"`, and `item`
+slugs filled. Completing also stamps `last_purchase_date` and
+`last_purchase_quantity` on the item. `new_item` with a duplicate name in that
+warehouse returns 400 from the catalog.
 
 **Error `400`:**
 ```json
 { "lines": ["Every receipt line must be included."] }
+```
+
+**Error `400` — item in another warehouse:**
+```json
+{ "item": "This item is not in the receipt warehouse." }
 ```
 
 Export: `GET /api/orgs/warehouse/receipts/{slug}/export/?format=pdf|xlsx`.
@@ -1515,6 +1735,8 @@ Tampered signatures return `{ "valid": false }`.
 ```json
 { "detail": "Password has been reset successfully." }
 ```
+
+> All outstanding refresh tokens for this user are blacklisted. Existing sessions must log in again.
 
 **Error `400` — invalid uid:**
 ```json
@@ -1839,3 +2061,5 @@ You will see the full email body including the password reset or Get Started lin
 | 1.3.0 | 2026-09-16 | Suspend / unsuspend members; `?status=` filter; login `400` for suspended accounts |
 | 1.4.0 | 2026-09-16 | Vendor API: list/add/get/update/suspend (`/api/orgs/vendors/`) |
 | 1.5.0 | 2026-09-17 | Spaces, `operation_incharge` / `space_incharge`, item catalog, purchase flow (RFQ, per-line award, PO, QC, warehouse, HMAC trail, PDF/Excel) |
+| 1.6.0 | 2026-09-18 | Warehouses, item categories, catalog fields, WebP photos (max 5), receipts credit a warehouse |
+| 1.7.0 | 2026-09-18 | Receipt GET `source_item` / `suggested_items` so the UI can prompt add-stock vs new item |

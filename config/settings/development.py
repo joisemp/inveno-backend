@@ -1,12 +1,17 @@
 """
 Development settings.
 """
+from decouple import config
+
 from .base import *  # noqa: F401, F403
 
 # ---------------------------------------------------------------------------
 # Debug
 # ---------------------------------------------------------------------------
 DEBUG = True
+
+# Dummy org/users/catalog after migrate. Production never seeds.
+SEED_DEMO = config("SEED_DEMO", default=True, cast=bool)
 
 # ---------------------------------------------------------------------------
 # Email — send via Mailpit (local SMTP).

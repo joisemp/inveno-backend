@@ -369,6 +369,13 @@ class WarehouseReceipt(UUIDModel, SlugMixin):
         on_delete=models.CASCADE,
         related_name="warehouse_receipt",
     )
+    warehouse = models.ForeignKey(
+        "inventory.Warehouse",
+        on_delete=models.PROTECT,
+        related_name="receipts",
+        null=True,
+        blank=True,
+    )
     status = models.CharField(
         max_length=32,
         choices=Status.choices,

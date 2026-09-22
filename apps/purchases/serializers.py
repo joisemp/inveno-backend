@@ -17,6 +17,8 @@ from apps.purchases.models import (
 from apps.purchases.services import (
     create_purchase_request,
     create_rfq,
+    receipt_source_item,
+    suggest_receipt_line_items,
     update_purchase_request,
 )
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -281,17 +283,47 @@ class PurchaseInvoiceSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class ReceiptSuggestedItemSerializer(serializers.Serializer):
+    """Catalog row the UI can offer when prompting add-to-existing vs new item."""
+
+    slug = serializers.SlugField()
+    name = serializers.CharField()
+    part_number = serializers.CharField()
+    unit = serializers.CharField()
+    quantity_on_hand = serializers.DecimalField(max_digits=12, decimal_places=3)
+
+
 class ReceiptLineSerializer(serializers.ModelSerializer):
     item = serializers.SlugRelatedField(read_only=True, slug_field="slug")
+    source_item = serializers.SerializerMethodField()
+    suggested_items = serializers.SerializerMethodField()
 
     class Meta:
         model = WarehouseReceiptLine
-        fields = ("slug", "description", "quantity", "unit", "item")
+        fields = (
+            "slug",
+            "description",
+            "quantity",
+            "unit",
+            "item",
+            "source_item",
+            "suggested_items",
+        )
         read_only_fields = fields
+
+    def get_source_item(self, obj) -> str | None:
+        item = receipt_source_item(line=obj)
+        return item.slug if item is not None else None
+
+    def get_suggested_items(self, obj):
+        return ReceiptSuggestedItemSerializer(
+            suggest_receipt_line_items(line=obj), many=True
+        ).data
 
 
 class WarehouseReceiptSerializer(serializers.ModelSerializer):
     purchase_order = serializers.SlugRelatedField(read_only=True, slug_field="slug")
+    warehouse = serializers.SlugRelatedField(read_only=True, slug_field="slug")
     lines = ReceiptLineSerializer(many=True, read_only=True)
 
     class Meta:
@@ -299,6 +331,7 @@ class WarehouseReceiptSerializer(serializers.ModelSerializer):
         fields = (
             "slug",
             "purchase_order",
+            "warehouse",
             "status",
             "lines",
             "created_at",
@@ -312,11 +345,12 @@ class ReceiptCompleteLineSerializer(serializers.Serializer):
     action = serializers.ChoiceField(choices=["new_item", "add_to_existing"])
     item = serializers.SlugField(required=False, allow_blank=True)
     name = serializers.CharField(required=False, allow_blank=True)
-    sku = serializers.CharField(required=False, allow_blank=True)
+    part_number = serializers.CharField(required=False, allow_blank=True)
     unit = serializers.CharField(required=False, allow_blank=True)
 
 
 class ReceiptCompleteSerializer(serializers.Serializer):
+    warehouse = serializers.SlugField(required=False, allow_blank=True)
     lines = ReceiptCompleteLineSerializer(many=True)
 
 

@@ -1,7 +1,7 @@
 """Purchase-flow tests: PR, RFQ, per-line vendor select, PO, QC, warehouse, trail."""
 import pytest
 
-from apps.inventory.models import Item
+from apps.inventory.models import Item, Warehouse
 from apps.vendors.models import Vendor
 
 PR = "/api/orgs/purchase-requests/"
@@ -220,6 +220,9 @@ class TestSplitAwardAndWarehouse:
         assert done.json()["status"] == "completed"
         item = Item.objects.get(org=test_org, name="A4 paper stock")
         assert item.quantity_on_hand == 10
+        assert item.last_purchase_quantity == 10
+        assert item.last_purchase_date is not None
+        assert item.warehouse_id is not None
 
         inv = ops_client.post(
             f"{PO}{po_a.json()['slug']}/invoice/",
@@ -475,10 +478,14 @@ class TestRevisionRejectAndQc:
         assert line["awarded_vendor"] is None
 
     def test_add_to_existing_stock(
-        self, ops_client, warehouse_client, vendor_a, vendor_b, test_org
+        self, ops_client, warehouse_client, vendor_a, vendor_b, test_org, warehouse
     ):
         existing = Item.objects.create(
-            org=test_org, name="A4 paper stock", unit="ream", quantity_on_hand=3
+            org=test_org,
+            warehouse=warehouse,
+            name="A4 paper stock",
+            unit="ream",
+            quantity_on_hand=3,
         )
         _created, rfq, line_slugs = _submit_quoted_rfq(ops_client, vendor_a, vendor_b)
         ops_client.post(
@@ -513,6 +520,43 @@ class TestRevisionRejectAndQc:
         assert pdf.status_code == 200
         assert pdf.content[:4] == b"%PDF"
 
+    def test_add_to_existing_rejects_other_warehouse(
+        self, ops_client, warehouse_client, vendor_a, vendor_b, test_org, warehouse
+    ):
+        other = Warehouse.objects.create(org=test_org, name="South store")
+        stray = Item.objects.create(
+            org=test_org, warehouse=other, name="A4 paper stock", unit="ream"
+        )
+        _created, rfq, line_slugs = _submit_quoted_rfq(ops_client, vendor_a, vendor_b)
+        ops_client.post(
+            f"{RFQ}{rfq['slug']}/select-lines/",
+            {"selections": [{"line": line_slugs[0], "vendor": vendor_a.slug}]},
+            format="json",
+        )
+        po = ops_client.post(
+            f"{RFQ}{rfq['slug']}/purchase-orders/",
+            {"vendor": vendor_a.slug, "create_purchase_order": True},
+            format="json",
+        ).json()
+        ops_client.post(f"{PO}{po['slug']}/quality-check/", {"passed": True}, format="json")
+        receipt = warehouse_client.get(f"{RECV}?status=pending").json()["results"][0]
+        done = warehouse_client.post(
+            f"{RECV}{receipt['slug']}/complete/",
+            {
+                "warehouse": warehouse.slug,
+                "lines": [
+                    {
+                        "line": receipt["lines"][0]["slug"],
+                        "action": "add_to_existing",
+                        "item": stray.slug,
+                    }
+                ]
+            },
+            format="json",
+        )
+        assert done.status_code == 400
+        assert done.json()["item"] == "This item is not in the receipt warehouse."
+
     def test_rfq_and_po_xlsx_export(self, ops_client, vendor_a, vendor_b):
         _created, rfq, line_slugs = _submit_quoted_rfq(ops_client, vendor_a, vendor_b)
         ops_client.post(
@@ -531,3 +575,118 @@ class TestRevisionRejectAndQc:
         po_pdf = ops_client.get(f"{PO}{po['slug']}/export/?format=pdf")
         assert po_pdf.status_code == 200
         assert po_pdf.content[:4] == b"%PDF"
+
+
+def _award_first_line_and_receive(ops_client, warehouse_client, vendor_a, vendor_b, pr_lines):
+    """Submit an ops PR, award the first line, QC-pass, return the pending receipt."""
+    created = ops_client.post(
+        PR, {"title": "Receive match", "lines": pr_lines}, format="json"
+    ).json()
+    ops_client.post(f"{PR}{created['slug']}/submit/", format="json")
+    rfq = ops_client.post(
+        RFQ,
+        {
+            "purchase_request": created["slug"],
+            "vendor_slugs": [vendor_a.slug, vendor_b.slug],
+        },
+        format="json",
+    ).json()
+    line_slugs = [row["slug"] for row in rfq["lines"]]
+    for vendor in (vendor_a, vendor_b):
+        ops_client.post(
+            f"{RFQ}{rfq['slug']}/quotes/",
+            {
+                "vendor": vendor.slug,
+                "lines": [
+                    {"line": slug, "unit_price": "12.50"} for slug in line_slugs
+                ],
+            },
+            format="json",
+        )
+    ops_client.post(
+        f"{RFQ}{rfq['slug']}/select-lines/",
+        {"selections": [{"line": line_slugs[0], "vendor": vendor_a.slug}]},
+        format="json",
+    )
+    po = ops_client.post(
+        f"{RFQ}{rfq['slug']}/purchase-orders/",
+        {"vendor": vendor_a.slug, "create_purchase_order": True},
+        format="json",
+    ).json()
+    ops_client.post(f"{PO}{po['slug']}/quality-check/", {"passed": True}, format="json")
+    return warehouse_client.get(f"{RECV}?status=pending").json()["results"][0]
+
+
+@pytest.mark.django_db
+class TestReceiptSuggestions:
+    def test_source_item_and_suggested_from_pr_item(
+        self, ops_client, warehouse_client, vendor_a, vendor_b, test_org, warehouse
+    ):
+        existing = Item.objects.create(
+            org=test_org,
+            warehouse=warehouse,
+            name="A4 paper",
+            unit="ream",
+            part_number="PAP-A4",
+            quantity_on_hand=3,
+        )
+        receipt = _award_first_line_and_receive(
+            ops_client,
+            warehouse_client,
+            vendor_a,
+            vendor_b,
+            [
+                {
+                    "description": "A4 paper",
+                    "quantity": "10",
+                    "unit": "ream",
+                    "item": existing.slug,
+                }
+            ],
+        )
+        line = receipt["lines"][0]
+        assert line["source_item"] == existing.slug
+        assert line["suggested_items"][0]["slug"] == existing.slug
+        assert line["suggested_items"][0]["part_number"] == "PAP-A4"
+        detail = warehouse_client.get(f"{RECV}{receipt['slug']}/")
+        assert detail.status_code == 200
+        assert detail.json()["lines"][0]["source_item"] == existing.slug
+
+    def test_suggested_items_match_description_name(
+        self, ops_client, warehouse_client, vendor_a, vendor_b, test_org, warehouse
+    ):
+        existing = Item.objects.create(
+            org=test_org,
+            warehouse=warehouse,
+            name="A4 paper",
+            unit="ream",
+            quantity_on_hand=2,
+        )
+        receipt = _award_first_line_and_receive(
+            ops_client,
+            warehouse_client,
+            vendor_a,
+            vendor_b,
+            [{"description": "A4 paper", "quantity": "10", "unit": "ream"}],
+        )
+        slugs = [row["slug"] for row in receipt["lines"][0]["suggested_items"]]
+        assert existing.slug in slugs
+        assert receipt["lines"][0]["source_item"] is None
+
+    def test_no_warehouse_means_empty_suggestions(
+        self, ops_client, warehouse_client, vendor_a, vendor_b, test_org, warehouse
+    ):
+        Item.objects.create(
+            org=test_org, warehouse=warehouse, name="A4 paper", unit="ream"
+        )
+        Warehouse.objects.create(org=test_org, name="South store")
+        receipt = _award_first_line_and_receive(
+            ops_client,
+            warehouse_client,
+            vendor_a,
+            vendor_b,
+            [{"description": "A4 paper", "quantity": "10", "unit": "ream"}],
+        )
+        assert receipt["warehouse"] is None
+        assert receipt["lines"][0]["suggested_items"] == []
+        assert receipt["lines"][0]["source_item"] is None
