@@ -12,20 +12,27 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 
 from apps.common.openapi import EmptySerializer, detail_response, error_responses
-from apps.inventory.models import Item, ItemPhoto, Warehouse
+from apps.inventory.models import Item, ItemActivity, ItemPhoto, Warehouse
 from apps.inventory.serializers import (
+    ItemActivityDetailSerializer,
+    ItemActivitySerializer,
     ItemCreateSerializer,
     ItemPhotoCreateSerializer,
     ItemPhotoSerializer,
     ItemSerializer,
+    ItemStockAdjustSerializer,
     ItemUpdateSerializer,
 )
 from apps.inventory.services import (
     ALREADY_SUSPENDED,
+    INSUFFICIENT_STOCK,
     ITEM_SUSPENDED,
     ITEM_UNSUSPENDED,
     NOT_SUSPENDED,
     PHOTO_LIMIT,
+    STOCK_ACTION_INVALID,
+    STOCK_QTY_POSITIVE,
+    STOCK_REASON_REQUIRED,
     add_item_photo,
     delete_item_photo,
     suspend_item,
@@ -36,6 +43,12 @@ from apps.organizations.permissions import IsItemReader, IsItemWriter
 ITEM_STATUS_VALUES = ("active", "suspended")
 INVALID_STATUS = 'Must be "active" or "suspended".'
 UNKNOWN_WAREHOUSE = "Unknown warehouse."
+ACTIVITY_KIND_VALUES = (
+    ItemActivity.Kind.INCOMING,
+    ItemActivity.Kind.OUTGOING,
+    ItemActivity.Kind.ITEM_EDIT,
+)
+INVALID_KIND = 'Must be "incoming", "outgoing", or "item_edit".'
 
 
 def field_error_response(*examples):
@@ -228,6 +241,7 @@ class ItemListCreateView(generics.ListCreateAPIView):
     def get_serializer_context(self):
         ctx = super().get_serializer_context()
         ctx["org"] = self.request.user.profile.org
+        ctx["actor"] = self.request.user.profile
         return ctx
 
     def create(self, request, *args, **kwargs):
@@ -295,6 +309,7 @@ class ItemRetrieveUpdateView(generics.RetrieveUpdateAPIView):
     def get_serializer_context(self):
         ctx = super().get_serializer_context()
         ctx["org"] = self.request.user.profile.org
+        ctx["actor"] = self.request.user.profile
         return ctx
 
     def update(self, request, *args, **kwargs):
@@ -320,7 +335,11 @@ class _ItemStatusView(generics.GenericAPIView):
     def post(self, request, *args, **kwargs):
         slug = self.kwargs[self.lookup_url_kwarg]
         try:
-            self.service(org=request.user.profile.org, slug=slug)
+            self.service(
+                org=request.user.profile.org,
+                slug=slug,
+                actor=request.user.profile,
+            )
         except Item.DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         except DjangoValidationError as exc:
@@ -416,12 +435,19 @@ class ItemPhotoCreateView(generics.GenericAPIView):
     def post(self, request, *args, **kwargs):
         item = self.get_object()
         serializer = self.get_serializer(
-            data=request.data, context={"item": item, "request": request}
+            data=request.data,
+            context={
+                "item": item,
+                "request": request,
+                "actor": request.user.profile,
+            },
         )
         serializer.is_valid(raise_exception=True)
         try:
             photo = add_item_photo(
-                item=item, uploaded_file=serializer.validated_data["image"]
+                item=item,
+                uploaded_file=serializer.validated_data["image"],
+                actor=request.user.profile,
             )
         except DjangoValidationError as exc:
             return Response(
@@ -460,7 +486,165 @@ class ItemPhotoDeleteView(generics.GenericAPIView):
         item = self.get_object()
         photo_slug = kwargs["photo_slug"]
         try:
-            delete_item_photo(item=item, photo_slug=photo_slug)
+            delete_item_photo(
+                item=item, photo_slug=photo_slug, actor=request.user.profile
+            )
         except ItemPhoto.DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+_ACTIVITY_SLUG_PARAM = OpenApiParameter(
+    name="activity_slug",
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.PATH,
+    description="Item activity slug.",
+)
+
+
+@extend_schema(
+    tags=["Items"],
+    summary="Add or remove item stock",
+    parameters=[_SLUG_PARAM],
+    request=ItemStockAdjustSerializer,
+    responses={
+        200: ItemSerializer,
+        400: field_error_response(
+            OpenApiExample(
+                "Insufficient stock",
+                value={"quantity": [INSUFFICIENT_STOCK]},
+                response_only=True,
+                status_codes=["400"],
+            ),
+            OpenApiExample(
+                "Reason required",
+                value={"reason": [STOCK_REASON_REQUIRED]},
+                response_only=True,
+                status_codes=["400"],
+            ),
+            OpenApiExample(
+                "Invalid action",
+                value={"action": [STOCK_ACTION_INVALID]},
+                response_only=True,
+                status_codes=["400"],
+            ),
+            OpenApiExample(
+                "Quantity not positive",
+                value={"quantity": [STOCK_QTY_POSITIVE]},
+                response_only=True,
+                status_codes=["400"],
+            ),
+        ),
+        404: _NOT_FOUND,
+        **error_responses(401, 403),
+    },
+)
+class ItemStockAdjustView(generics.GenericAPIView):
+    """Add or remove a positive quantity. Does not stamp last-purchase."""
+
+    permission_classes = [permissions.IsAuthenticated, IsItemWriter]
+    serializer_class = ItemStockAdjustSerializer
+    lookup_field = "slug"
+    lookup_url_kwarg = "slug"
+
+    def get_queryset(self):
+        return Item.objects.filter(org=self.request.user.profile.org)
+
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        ctx["item"] = self.get_object()
+        ctx["actor"] = self.request.user.profile
+        return ctx
+
+    def post(self, request, *args, **kwargs):
+        item = self.get_object()
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        item = serializer.save()
+        return Response(ItemSerializer(item, context=self.get_serializer_context()).data)
+
+
+@extend_schema(
+    tags=["Items"],
+    summary="List item activity",
+    parameters=[
+        _SLUG_PARAM,
+        OpenApiParameter(
+            name="kind",
+            type=OpenApiTypes.STR,
+            location=OpenApiParameter.QUERY,
+            required=False,
+            enum=list(ACTIVITY_KIND_VALUES),
+        ),
+    ],
+    responses={
+        200: ItemActivitySerializer(many=True),
+        400: field_error_response(
+            OpenApiExample(
+                "Invalid kind",
+                value={"kind": [INVALID_KIND]},
+                response_only=True,
+                status_codes=["400"],
+            ),
+        ),
+        404: _NOT_FOUND,
+        **error_responses(401, 403),
+    },
+)
+class ItemActivityListView(generics.ListAPIView):
+    """Paginated history for one item, newest first."""
+
+    permission_classes = [permissions.IsAuthenticated, IsItemReader]
+    serializer_class = ItemActivitySerializer
+    lookup_field = "slug"
+    lookup_url_kwarg = "slug"
+
+    def get_item(self):
+        return generics.get_object_or_404(
+            Item.objects.filter(org=self.request.user.profile.org),
+            slug=self.kwargs["slug"],
+        )
+
+    def get_queryset(self):
+        item = self.get_item()
+        return ItemActivity.objects.filter(item=item).order_by("-created_at")
+
+    def list(self, request, *args, **kwargs):
+        kind = request.query_params.get("kind")
+        if kind is not None and kind not in ACTIVITY_KIND_VALUES:
+            return Response(
+                {"kind": [INVALID_KIND]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        self.get_item()
+        qs = self.get_queryset()
+        if kind:
+            qs = qs.filter(kind=kind)
+        page = self.paginate_queryset(qs)
+        serializer = self.get_serializer(page, many=True)
+        return self.get_paginated_response(serializer.data)
+
+
+@extend_schema(
+    tags=["Items"],
+    summary="Get item activity details",
+    parameters=[_SLUG_PARAM, _ACTIVITY_SLUG_PARAM],
+    responses={
+        200: ItemActivityDetailSerializer,
+        404: _NOT_FOUND,
+        **error_responses(401, 403),
+    },
+)
+class ItemActivityDetailView(generics.RetrieveAPIView):
+    """One activity row plus payload. Identified by item and activity slugs."""
+
+    permission_classes = [permissions.IsAuthenticated, IsItemReader]
+    serializer_class = ItemActivityDetailSerializer
+    lookup_field = "slug"
+    lookup_url_kwarg = "activity_slug"
+
+    def get_queryset(self):
+        return ItemActivity.objects.filter(
+            org=self.request.user.profile.org,
+            item__slug=self.kwargs["slug"],
+        )

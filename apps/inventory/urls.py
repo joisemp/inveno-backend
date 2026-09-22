@@ -2,10 +2,13 @@
 from django.urls import path
 
 from apps.inventory.views import (
+    ItemActivityDetailView,
+    ItemActivityListView,
     ItemListCreateView,
     ItemPhotoCreateView,
     ItemPhotoDeleteView,
     ItemRetrieveUpdateView,
+    ItemStockAdjustView,
     ItemSuspendView,
     ItemUnsuspendView,
 )
@@ -56,5 +59,20 @@ urlpatterns = [
         "items/<slug:slug>/photos/<slug:photo_slug>/",
         ItemPhotoDeleteView.as_view(),
         name="item-photo-delete",
+    ),
+    path(
+        "items/<slug:slug>/stock/",
+        ItemStockAdjustView.as_view(),
+        name="item-stock",
+    ),
+    path(
+        "items/<slug:slug>/activity/",
+        ItemActivityListView.as_view(),
+        name="item-activity-list",
+    ),
+    path(
+        "items/<slug:slug>/activity/<slug:activity_slug>/",
+        ItemActivityDetailView.as_view(),
+        name="item-activity-detail",
     ),
 ]

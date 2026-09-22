@@ -736,7 +736,13 @@ def complete_warehouse_receipt(
                 raise ValidationError({"item": ITEM_REQUIRED}) from exc
             if item.warehouse_id != receipt.warehouse_id:
                 raise ValidationError({"item": ITEM_WRONG_WAREHOUSE})
-            increment_stock(item=item, quantity=qty)
+            increment_stock(
+                item=item,
+                quantity=qty,
+                actor=actor,
+                receipt_slug=receipt.slug,
+                line_slug=rec_line.slug,
+            )
             rec_line.item = item
             rec_line.save(update_fields=["item"])
         elif action == "new_item":
@@ -746,8 +752,15 @@ def complete_warehouse_receipt(
                 name=row.get("name") or rec_line.description,
                 unit=row.get("unit") or rec_line.unit,
                 part_number=row.get("part_number") or "",
+                actor=actor,
             )
-            increment_stock(item=item, quantity=qty)
+            increment_stock(
+                item=item,
+                quantity=qty,
+                actor=actor,
+                receipt_slug=receipt.slug,
+                line_slug=rec_line.slug,
+            )
             rec_line.item = item
             rec_line.save(update_fields=["item"])
         else:

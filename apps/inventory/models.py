@@ -74,7 +74,10 @@ class ItemCategory(UUIDModel, SlugMixin):
 
 
 class Item(UUIDModel, SlugMixin):
-    """A catalog item held in one warehouse. Stock changes only via receiving."""
+    """A catalog item held in one warehouse.
+
+    Stock changes via warehouse receiving or POST .../stock/, never item PATCH.
+    """
 
     org = models.ForeignKey(
         "organizations.Organization",
@@ -161,3 +164,71 @@ class ItemPhoto(UUIDModel, SlugMixin):
 
     def get_slug_source(self) -> str:
         return getattr(self, "_slug_source", "") or "photo"
+
+
+class ItemActivity(UUIDModel, SlugMixin):
+    """Append-only log of a catalog, stock, or status change on one item."""
+
+    class Kind(models.TextChoices):
+        INCOMING = "incoming", "Incoming"
+        OUTGOING = "outgoing", "Outgoing"
+        ITEM_EDIT = "item_edit", "Item edit"
+
+    class Action(models.TextChoices):
+        CREATED = "created", "Created"
+        UPDATED = "updated", "Updated"
+        ADDED = "added", "Added"
+        REMOVED = "removed", "Removed"
+        RECEIVED = "received", "Received"
+        SUSPENDED = "suspended", "Suspended"
+        UNSUSPENDED = "unsuspended", "Unsuspended"
+        PHOTO_ADDED = "photo_added", "Photo added"
+        PHOTO_DELETED = "photo_deleted", "Photo deleted"
+
+    org = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.CASCADE,
+        related_name="item_activities",
+    )
+    item = models.ForeignKey(
+        Item,
+        on_delete=models.CASCADE,
+        related_name="activities",
+    )
+    actor = models.ForeignKey(
+        "users.UserProfile",
+        on_delete=models.SET_NULL,
+        related_name="item_activities",
+        null=True,
+        blank=True,
+    )
+    actor_slug = models.SlugField(max_length=255, blank=True)
+    actor_full_name = models.CharField(max_length=301, blank=True)
+    actor_user_type = models.CharField(max_length=32, blank=True)
+    kind = models.CharField(max_length=20, choices=Kind.choices)
+    action = models.CharField(max_length=20, choices=Action.choices)
+    remarks = models.CharField(max_length=255, blank=True)
+    previous_quantity = models.DecimalField(
+        max_digits=12, decimal_places=3, null=True, blank=True
+    )
+    quantity = models.DecimalField(
+        max_digits=12, decimal_places=3, null=True, blank=True
+    )
+    delta = models.DecimalField(
+        max_digits=12, decimal_places=3, null=True, blank=True
+    )
+    reference_type = models.CharField(max_length=64, default="item_activity")
+    reference_slug = models.SlugField(max_length=255, blank=True)
+    payload = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Item activity"
+        verbose_name_plural = "Item activities"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.item.name} {self.action}"
+
+    def get_slug_source(self) -> str:
+        return f"{self.item.name} {self.action}"

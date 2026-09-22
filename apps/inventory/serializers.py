@@ -2,9 +2,10 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
-from apps.inventory.models import Item, ItemCategory, ItemPhoto, Warehouse
+from apps.inventory.models import Item, ItemActivity, ItemCategory, ItemPhoto, Warehouse
 from apps.inventory.services import (
     add_item_photo,
+    adjust_item_stock,
     create_item,
     create_item_category,
     create_warehouse,
@@ -127,7 +128,9 @@ class ItemPhotoCreateSerializer(serializers.Serializer):
     def create(self, validated_data):
         try:
             return add_item_photo(
-                item=self.context["item"], uploaded_file=validated_data["image"]
+                item=self.context["item"],
+                uploaded_file=validated_data["image"],
+                actor=self.context.get("actor"),
             )
         except DjangoValidationError as exc:
             _raise_django_validation(exc)
@@ -195,6 +198,7 @@ class ItemCreateSerializer(serializers.Serializer):
             return create_item(
                 org=self.context["org"],
                 category=category,
+                actor=self.context.get("actor"),
                 **validated_data,
             )
         except DjangoValidationError as exc:
@@ -226,6 +230,90 @@ class ItemUpdateSerializer(serializers.Serializer):
         if "category" in validated_data and validated_data["category"] == "":
             validated_data["category"] = None
         try:
-            return update_item(item=instance, **validated_data)
+            return update_item(
+                item=instance, actor=self.context.get("actor"), **validated_data
+            )
         except DjangoValidationError as exc:
             _raise_django_validation(exc)
+
+
+class ItemStockAdjustSerializer(serializers.Serializer):
+    """Add or remove a positive quantity. Reason is required."""
+
+    action = serializers.ChoiceField(choices=("add", "remove"))
+    quantity = serializers.DecimalField(max_digits=12, decimal_places=3)
+    reason = serializers.CharField(max_length=255)
+
+    def validate_quantity(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Quantity must be greater than 0.")
+        return value
+
+    def save(self, **kwargs):
+        try:
+            return adjust_item_stock(
+                item=self.context["item"],
+                actor=self.context["actor"],
+                action=self.validated_data["action"],
+                quantity=self.validated_data["quantity"],
+                reason=self.validated_data["reason"],
+            )
+        except DjangoValidationError as exc:
+            _raise_django_validation(exc)
+
+
+class ItemActivityRecordedBySerializer(serializers.Serializer):
+    """Member snapshot on an activity row (profile slug, never User UUID)."""
+
+    slug = serializers.SlugField()
+    full_name = serializers.CharField()
+    user_type = serializers.CharField()
+
+
+class ItemActivityReferenceSerializer(serializers.Serializer):
+    """Source document or this activity, identified by slug."""
+
+    type = serializers.CharField()
+    slug = serializers.SlugField()
+
+
+class ItemActivitySerializer(serializers.ModelSerializer):
+    """List row for the item history table. No UUID id."""
+
+    recorded_on = serializers.DateTimeField(source="created_at", read_only=True)
+    recorded_by = serializers.SerializerMethodField()
+    reference = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ItemActivity
+        fields = (
+            "slug",
+            "kind",
+            "action",
+            "previous_quantity",
+            "quantity",
+            "delta",
+            "recorded_on",
+            "recorded_by",
+            "remarks",
+            "reference",
+        )
+        read_only_fields = fields
+
+    def get_recorded_by(self, obj) -> dict:
+        return {
+            "slug": obj.actor_slug,
+            "full_name": obj.actor_full_name,
+            "user_type": obj.actor_user_type,
+        }
+
+    def get_reference(self, obj) -> dict:
+        return {"type": obj.reference_type, "slug": obj.reference_slug}
+
+
+class ItemActivityDetailSerializer(ItemActivitySerializer):
+    """History row plus payload for the details panel."""
+
+    class Meta(ItemActivitySerializer.Meta):
+        fields = (*ItemActivitySerializer.Meta.fields, "payload")
+        read_only_fields = fields

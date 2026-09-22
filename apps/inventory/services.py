@@ -2,9 +2,10 @@
 Inventory catalog services.
 
 Views and org registration call these functions. Stock quantity is updated
-only by warehouse receiving (increment_stock).
+by warehouse receiving (increment_stock) or adjust_item_stock.
 """
 import logging
+from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
 
@@ -15,7 +16,7 @@ from django.utils import timezone
 from PIL import Image, UnidentifiedImageError
 
 from apps.common.slugs import assign_unique_slug
-from apps.inventory.models import Item, ItemCategory, ItemPhoto, Warehouse
+from apps.inventory.models import Item, ItemActivity, ItemCategory, ItemPhoto, Warehouse
 from apps.organizations.models import Organization
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,84 @@ ALREADY_SUSPENDED = "This item is already suspended."
 NOT_SUSPENDED = "This item is not suspended."
 ITEM_SUSPENDED = "Item suspended."
 ITEM_UNSUSPENDED = "Item unsuspended."
+STOCK_REASON_REQUIRED = "A reason is required."
+STOCK_ACTION_INVALID = 'Must be "add" or "remove".'
+STOCK_QTY_POSITIVE = "Quantity must be greater than 0."
+INSUFFICIENT_STOCK = "Insufficient stock."
+
+DEFAULT_ACTIVITY_REMARKS = {
+    ItemActivity.Action.CREATED: "Item created",
+    ItemActivity.Action.UPDATED: "Item updated",
+    ItemActivity.Action.ADDED: "Stock added",
+    ItemActivity.Action.REMOVED: "Stock removed",
+    ItemActivity.Action.RECEIVED: "Warehouse receipt",
+    ItemActivity.Action.SUSPENDED: "Item suspended",
+    ItemActivity.Action.UNSUSPENDED: "Item unsuspended",
+    ItemActivity.Action.PHOTO_ADDED: "Photo added",
+    ItemActivity.Action.PHOTO_DELETED: "Photo deleted",
+}
+
+
+def _qty_str(value) -> str:
+    return f"{Decimal(value):.3f}"
+
+
+def _public_field_value(key, value):
+    """Serialize a catalog field for activity payload (slugs, never UUIDs)."""
+    if key in ("warehouse", "category") and value is not None:
+        return getattr(value, "slug", value)
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return _qty_str(value)
+    return value
+
+
+def record_item_activity(
+    *,
+    item: Item,
+    actor,
+    kind: str,
+    action: str,
+    remarks: str = "",
+    previous_quantity=None,
+    quantity=None,
+    delta=None,
+    reference_type: str = "",
+    reference_slug: str = "",
+    payload: dict | None = None,
+) -> ItemActivity:
+    """Append one activity row in the same transaction as the domain write."""
+    actor_slug = ""
+    actor_full_name = ""
+    actor_user_type = ""
+    if actor is not None:
+        actor_slug = actor.slug
+        actor_full_name = actor.full_name
+        actor_user_type = actor.user_type
+    activity = ItemActivity(
+        org=item.org,
+        item=item,
+        actor=actor,
+        actor_slug=actor_slug,
+        actor_full_name=actor_full_name,
+        actor_user_type=actor_user_type,
+        kind=kind,
+        action=action,
+        remarks=remarks or DEFAULT_ACTIVITY_REMARKS.get(action, ""),
+        previous_quantity=previous_quantity,
+        quantity=quantity,
+        delta=delta,
+        reference_type=reference_type or "item_activity",
+        reference_slug=reference_slug,
+        payload=payload or {},
+    )
+    activity.save()
+    if not activity.reference_slug:
+        activity.reference_slug = activity.slug
+        activity.reference_type = "item_activity"
+        activity.save(update_fields=["reference_slug", "reference_type"])
+    return activity
 
 
 def get_org_warehouse(*, org: Organization, slug: str) -> Warehouse:
@@ -186,6 +265,7 @@ def create_item(
     category=None,
     location: str = "",
     remarks: str = "",
+    actor=None,
 ) -> Item:
     """Create a catalog item with quantity_on_hand=0 in an active warehouse."""
     wh = _resolve_warehouse(org=org, warehouse=warehouse, require_active=True)
@@ -204,12 +284,29 @@ def create_item(
         location=location,
         remarks=remarks,
     )
+    record_item_activity(
+        item=item,
+        actor=actor,
+        kind=ItemActivity.Kind.ITEM_EDIT,
+        action=ItemActivity.Action.CREATED,
+        payload={
+            "warehouse": wh.slug,
+            "name": name,
+            "unit": unit,
+            "description": description,
+            "part_number": part_number,
+            "alternate_part_number": alternate_part_number,
+            "category": cat.slug if cat else None,
+            "location": location,
+            "remarks": remarks,
+        },
+    )
     logger.info("Created item '%s' for org '%s'", name, org.org_suffix)
     return item
 
 
 @transaction.atomic
-def update_item(*, item: Item, **fields) -> Item:
+def update_item(*, item: Item, actor=None, **fields) -> Item:
     """Update catalog fields. Never quantity_on_hand."""
     warehouse = item.warehouse
     if "warehouse" in fields:
@@ -242,35 +339,71 @@ def update_item(*, item: Item, **fields) -> Item:
         "last_purchase_date",
         "last_purchase_quantity",
     )
+    changes = {}
     changed = []
     for key in allowed:
-        if key in fields:
-            setattr(item, key, fields[key])
-            changed.append(key)
+        if key not in fields:
+            continue
+        old = _public_field_value(key, getattr(item, key))
+        new = _public_field_value(key, fields[key])
+        setattr(item, key, fields[key])
+        changed.append(key)
+        if old != new:
+            changes[key] = {"from": old, "to": new}
     if changed:
         item.save(update_fields=[*changed, "updated_at"])
         logger.info("Updated item '%s' fields %s", item.slug, changed)
+        if changes:
+            record_item_activity(
+                item=item,
+                actor=actor,
+                kind=ItemActivity.Kind.ITEM_EDIT,
+                action=ItemActivity.Action.UPDATED,
+                payload={"changes": changes},
+            )
     return item
 
 
-def set_item_active(*, org: Organization, slug: str, is_active: bool) -> Item:
+@transaction.atomic
+def set_item_active(*, org: Organization, slug: str, is_active: bool, actor=None) -> Item:
     """Suspend or unsuspend a catalog item."""
     item = get_org_item(org=org, slug=slug)
     if is_active and item.is_active:
         raise ValidationError({"detail": NOT_SUSPENDED})
     if not is_active and not item.is_active:
         raise ValidationError({"detail": ALREADY_SUSPENDED})
+    previous = item.is_active
     item.is_active = is_active
     item.save(update_fields=["is_active", "updated_at"])
+    action = (
+        ItemActivity.Action.UNSUSPENDED if is_active else ItemActivity.Action.SUSPENDED
+    )
+    actor_payload = {}
+    if actor is not None:
+        actor_payload = {
+            "slug": actor.slug,
+            "full_name": actor.full_name,
+            "user_type": actor.user_type,
+        }
+    record_item_activity(
+        item=item,
+        actor=actor,
+        kind=ItemActivity.Kind.ITEM_EDIT,
+        action=action,
+        payload={
+            "is_active": {"from": previous, "to": is_active},
+            "actor": actor_payload,
+        },
+    )
     return item
 
 
-def suspend_item(*, org: Organization, slug: str) -> Item:
-    return set_item_active(org=org, slug=slug, is_active=False)
+def suspend_item(*, org: Organization, slug: str, actor=None) -> Item:
+    return set_item_active(org=org, slug=slug, is_active=False, actor=actor)
 
 
-def unsuspend_item(*, org: Organization, slug: str) -> Item:
-    return set_item_active(org=org, slug=slug, is_active=True)
+def unsuspend_item(*, org: Organization, slug: str, actor=None) -> Item:
+    return set_item_active(org=org, slug=slug, is_active=True, actor=actor)
 
 
 def convert_upload_to_webp(uploaded_file) -> ContentFile:
@@ -293,7 +426,7 @@ def convert_upload_to_webp(uploaded_file) -> ContentFile:
 
 
 @transaction.atomic
-def add_item_photo(*, item: Item, uploaded_file) -> ItemPhoto:
+def add_item_photo(*, item: Item, uploaded_file, actor=None) -> ItemPhoto:
     """Store a WebP photo on *item*, rejecting a sixth image."""
     if item.photos.count() >= MAX_ITEM_PHOTOS:
         raise ValidationError({"detail": PHOTO_LIMIT})
@@ -304,22 +437,37 @@ def add_item_photo(*, item: Item, uploaded_file) -> ItemPhoto:
     photo.slug = assign_unique_slug(photo, photo._slug_source)
     photo.image.save(f"{photo.slug}.webp", webp, save=False)
     photo.save()
+    record_item_activity(
+        item=item,
+        actor=actor,
+        kind=ItemActivity.Kind.ITEM_EDIT,
+        action=ItemActivity.Action.PHOTO_ADDED,
+        payload={"photo": photo.slug},
+    )
     logger.info("Added photo '%s' to item '%s'", photo.slug, item.slug)
     return photo
 
 
 @transaction.atomic
-def delete_item_photo(*, item: Item, photo_slug: str) -> None:
+def delete_item_photo(*, item: Item, photo_slug: str, actor=None) -> None:
     """Remove a photo row and its stored file."""
     photo = item.photos.get(slug=photo_slug)
     photo.image.delete(save=False)
     photo.delete()
+    record_item_activity(
+        item=item,
+        actor=actor,
+        kind=ItemActivity.Kind.ITEM_EDIT,
+        action=ItemActivity.Action.PHOTO_DELETED,
+        payload={"photo": photo_slug},
+    )
     logger.info("Deleted photo '%s' from item '%s'", photo_slug, item.slug)
 
 
 @transaction.atomic
-def increment_stock(*, item: Item, quantity) -> Item:
+def increment_stock(*, item: Item, quantity, actor=None, receipt_slug="", line_slug="") -> Item:
     """Add *quantity* to on-hand stock and stamp last-purchase fields."""
+    previous = item.quantity_on_hand
     item.quantity_on_hand = item.quantity_on_hand + quantity
     item.last_purchase_date = timezone.localdate()
     item.last_purchase_quantity = quantity
@@ -331,4 +479,73 @@ def increment_stock(*, item: Item, quantity) -> Item:
             "updated_at",
         ]
     )
+    remarks = (
+        f"Warehouse receipt {receipt_slug}" if receipt_slug else "Warehouse receipt"
+    )
+    record_item_activity(
+        item=item,
+        actor=actor,
+        kind=ItemActivity.Kind.INCOMING,
+        action=ItemActivity.Action.RECEIVED,
+        remarks=remarks,
+        previous_quantity=previous,
+        quantity=item.quantity_on_hand,
+        delta=quantity,
+        reference_type="warehouse_receipt" if receipt_slug else "item_activity",
+        reference_slug=receipt_slug,
+        payload={
+            "amount": _qty_str(quantity),
+            "previous_quantity": _qty_str(previous),
+            "quantity": _qty_str(item.quantity_on_hand),
+            "receipt": receipt_slug or None,
+            "line": line_slug or None,
+        },
+    )
     return item
+
+
+@transaction.atomic
+def adjust_item_stock(*, item: Item, actor, action: str, quantity, reason: str) -> Item:
+    """Add or remove a positive quantity without stamping last-purchase."""
+    if action not in ("add", "remove"):
+        raise ValidationError({"action": STOCK_ACTION_INVALID})
+    reason = (reason or "").strip()
+    if not reason:
+        raise ValidationError({"reason": STOCK_REASON_REQUIRED})
+    qty = Decimal(quantity)
+    if qty <= 0:
+        raise ValidationError({"quantity": STOCK_QTY_POSITIVE})
+    locked = Item.objects.select_for_update().get(pk=item.pk)
+    previous = locked.quantity_on_hand
+    if action == "add":
+        new_qty = previous + qty
+        kind = ItemActivity.Kind.INCOMING
+        activity_action = ItemActivity.Action.ADDED
+        delta = qty
+    else:
+        new_qty = previous - qty
+        if new_qty < 0:
+            raise ValidationError({"quantity": INSUFFICIENT_STOCK})
+        kind = ItemActivity.Kind.OUTGOING
+        activity_action = ItemActivity.Action.REMOVED
+        delta = -qty
+    locked.quantity_on_hand = new_qty
+    locked.save(update_fields=["quantity_on_hand", "updated_at"])
+    record_item_activity(
+        item=locked,
+        actor=actor,
+        kind=kind,
+        action=activity_action,
+        remarks=reason,
+        previous_quantity=previous,
+        quantity=new_qty,
+        delta=delta,
+        payload={
+            "action": action,
+            "amount": _qty_str(qty),
+            "previous_quantity": _qty_str(previous),
+            "quantity": _qty_str(new_qty),
+            "reason": reason,
+        },
+    )
+    return locked
