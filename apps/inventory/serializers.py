@@ -1,5 +1,6 @@
 """Serializers for warehouses, categories, and the item catalog."""
 from django.core.exceptions import ValidationError as DjangoValidationError
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from apps.inventory.models import Item, ItemActivity, ItemCategory, ItemPhoto, Warehouse
@@ -123,7 +124,9 @@ class ItemPhotoSerializer(serializers.ModelSerializer):
 class ItemPhotoCreateSerializer(serializers.Serializer):
     """Multipart upload. The file is converted to WebP in the service."""
 
-    image = serializers.ImageField()
+    image = serializers.ImageField(
+        help_text="JPEG, PNG, GIF, or WebP. Stored as WebP. Multipart field name: image."
+    )
 
     def create(self, validated_data):
         try:
@@ -174,21 +177,42 @@ class ItemSerializer(serializers.ModelSerializer):
 class ItemCreateSerializer(serializers.Serializer):
     """Create a catalog item. Stock starts at 0. Requires a warehouse slug."""
 
-    warehouse = serializers.SlugField()
-    name = serializers.CharField(max_length=255)
-    unit = serializers.CharField(max_length=50)
-    description = serializers.CharField(required=False, allow_blank=True, default="")
+    warehouse = serializers.SlugField(help_text="Active warehouse slug.")
+    name = serializers.CharField(max_length=255, help_text="Catalog name. Unique per warehouse.")
+    unit = serializers.CharField(max_length=50, help_text="Unit of measure, e.g. ream.")
+    description = serializers.CharField(
+        required=False, allow_blank=True, default="", help_text="Optional long description."
+    )
     part_number = serializers.CharField(
-        max_length=100, required=False, allow_blank=True, default=""
+        max_length=100,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Optional. Unique per warehouse when set.",
     )
     alternate_part_number = serializers.CharField(
-        max_length=100, required=False, allow_blank=True, default=""
+        max_length=100,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Optional alternate part number.",
     )
-    category = serializers.SlugField(required=False, allow_null=True, allow_blank=True)
+    category = serializers.SlugField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Optional item-category slug.",
+    )
     location = serializers.CharField(
-        max_length=255, required=False, allow_blank=True, default=""
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Optional bin / aisle location.",
     )
-    remarks = serializers.CharField(required=False, allow_blank=True, default="")
+    remarks = serializers.CharField(
+        required=False, allow_blank=True, default="", help_text="Optional notes."
+    )
 
     def create(self, validated_data):
         category = validated_data.pop("category", None)
@@ -208,7 +232,7 @@ class ItemCreateSerializer(serializers.Serializer):
 class ItemUpdateSerializer(serializers.Serializer):
     """Partial update. quantity_on_hand and slug are not writable."""
 
-    warehouse = serializers.SlugField(required=False)
+    warehouse = serializers.SlugField(required=False, help_text="Move to another active warehouse.")
     name = serializers.CharField(max_length=255, required=False)
     unit = serializers.CharField(max_length=50, required=False)
     description = serializers.CharField(required=False, allow_blank=True)
@@ -221,9 +245,15 @@ class ItemUpdateSerializer(serializers.Serializer):
     category = serializers.SlugField(required=False, allow_null=True, allow_blank=True)
     location = serializers.CharField(max_length=255, required=False, allow_blank=True)
     remarks = serializers.CharField(required=False, allow_blank=True)
-    last_purchase_date = serializers.DateField(required=False, allow_null=True)
+    last_purchase_date = serializers.DateField(
+        required=False, allow_null=True, help_text="Usually set by completing a receipt."
+    )
     last_purchase_quantity = serializers.DecimalField(
-        max_digits=12, decimal_places=3, required=False, allow_null=True
+        max_digits=12,
+        decimal_places=3,
+        required=False,
+        allow_null=True,
+        help_text="Usually set by completing a receipt.",
     )
 
     def update(self, instance, validated_data):
@@ -240,9 +270,18 @@ class ItemUpdateSerializer(serializers.Serializer):
 class ItemStockAdjustSerializer(serializers.Serializer):
     """Add or remove a positive quantity. Reason is required."""
 
-    action = serializers.ChoiceField(choices=("add", "remove"))
-    quantity = serializers.DecimalField(max_digits=12, decimal_places=3)
-    reason = serializers.CharField(max_length=255)
+    action = serializers.ChoiceField(
+        choices=("add", "remove"),
+        help_text='Use "add" to increase on-hand stock or "remove" to decrease it.',
+    )
+    quantity = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=3,
+        help_text="Positive amount to add or remove. Not the new total.",
+    )
+    reason = serializers.CharField(
+        max_length=255, help_text="Required. Stored on the activity row as remarks."
+    )
 
     def validate_quantity(self, value):
         if value <= 0:
@@ -300,6 +339,7 @@ class ItemActivitySerializer(serializers.ModelSerializer):
         )
         read_only_fields = fields
 
+    @extend_schema_field(ItemActivityRecordedBySerializer)
     def get_recorded_by(self, obj) -> dict:
         return {
             "slug": obj.actor_slug,
@@ -307,6 +347,7 @@ class ItemActivitySerializer(serializers.ModelSerializer):
             "user_type": obj.actor_user_type,
         }
 
+    @extend_schema_field(ItemActivityReferenceSerializer)
     def get_reference(self, obj) -> dict:
         return {"type": obj.reference_type, "slug": obj.reference_slug}
 

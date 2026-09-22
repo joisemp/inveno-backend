@@ -74,6 +74,11 @@ def _detail_from_validation_error(exc: DjangoValidationError) -> str:
     return "Invalid."
 
 
+_EXAMPLE_PHOTO = {
+    "slug": "aisle-bin",
+    "url": "http://localhost:8000/media/items/2026/09/aisle-bin.webp",
+}
+
 _EXAMPLE_ITEM = {
     "slug": "a4-paper",
     "warehouse": "warehouse",
@@ -89,10 +94,244 @@ _EXAMPLE_ITEM = {
     "balance_in_stock": "0.000",
     "last_purchase_date": None,
     "last_purchase_quantity": None,
-    "photos": [],
+    "photos": [_EXAMPLE_PHOTO],
     "is_active": True,
     "created_at": "2026-09-17T10:00:00Z",
     "updated_at": "2026-09-17T10:00:00Z",
+}
+
+_EXAMPLE_ITEM_CREATE = {
+    "warehouse": "warehouse",
+    "name": "A4 paper",
+    "unit": "ream",
+    "description": "80gsm copier paper",
+    "part_number": "PAP-A4",
+    "alternate_part_number": "",
+    "category": "stationery",
+    "location": "Aisle 2 / Bin 4",
+    "remarks": "",
+}
+
+_EXAMPLE_ITEM_UPDATE = {
+    "warehouse": "warehouse",
+    "name": "A4 copier paper",
+    "unit": "ream",
+    "description": "80gsm copier paper",
+    "part_number": "PAP-A4",
+    "alternate_part_number": "PAP-A4-ALT",
+    "category": "stationery",
+    "location": "Aisle 3 / Bin 1",
+    "remarks": "Keep dry",
+    "last_purchase_date": "2026-09-18",
+    "last_purchase_quantity": "10.000",
+}
+
+_EXAMPLE_ITEM_AFTER_STOCK = {
+    **_EXAMPLE_ITEM,
+    "quantity_on_hand": "12.000",
+    "balance_in_stock": "12.000",
+    "updated_at": "2026-09-22T10:00:00Z",
+}
+
+_EXAMPLE_RECORDED_BY = {
+    "slug": "jefin-james",
+    "full_name": "Jefin James",
+    "user_type": "warehouse_manager",
+}
+
+_EXAMPLE_ACTIVITY_ADDED = {
+    "slug": "a4-paper-added",
+    "kind": "incoming",
+    "action": "added",
+    "previous_quantity": "0.000",
+    "quantity": "12.000",
+    "delta": "12.000",
+    "recorded_on": "2026-09-22T10:00:00Z",
+    "recorded_by": _EXAMPLE_RECORDED_BY,
+    "remarks": "Opening balance",
+    "reference": {"type": "item_activity", "slug": "a4-paper-added"},
+}
+
+_EXAMPLE_ACTIVITY_REMOVED = {
+    "slug": "a4-paper-removed",
+    "kind": "outgoing",
+    "action": "removed",
+    "previous_quantity": "12.000",
+    "quantity": "10.000",
+    "delta": "-2.000",
+    "recorded_on": "2026-09-22T10:05:00Z",
+    "recorded_by": _EXAMPLE_RECORDED_BY,
+    "remarks": "Damaged",
+    "reference": {"type": "item_activity", "slug": "a4-paper-removed"},
+}
+
+_EXAMPLE_ACTIVITY_CREATED = {
+    "slug": "a4-paper-created",
+    "kind": "item_edit",
+    "action": "created",
+    "previous_quantity": None,
+    "quantity": None,
+    "delta": None,
+    "recorded_on": "2026-09-22T09:55:00Z",
+    "recorded_by": _EXAMPLE_RECORDED_BY,
+    "remarks": "Item created",
+    "reference": {"type": "item_activity", "slug": "a4-paper-created"},
+}
+
+_EXAMPLE_ACTIVITY_DETAIL_ADDED = {
+    **_EXAMPLE_ACTIVITY_ADDED,
+    "payload": {
+        "action": "add",
+        "amount": "12.000",
+        "previous_quantity": "0.000",
+        "quantity": "12.000",
+        "reason": "Opening balance",
+    },
+}
+
+_EXAMPLE_ACTIVITY_DETAIL_REMOVED = {
+    **_EXAMPLE_ACTIVITY_REMOVED,
+    "payload": {
+        "action": "remove",
+        "amount": "2.000",
+        "previous_quantity": "12.000",
+        "quantity": "10.000",
+        "reason": "Damaged",
+    },
+}
+
+_EXAMPLE_ACTIVITY_DETAIL_CREATED = {
+    **_EXAMPLE_ACTIVITY_CREATED,
+    "payload": {
+        "warehouse": "warehouse",
+        "name": "A4 paper",
+        "unit": "ream",
+        "description": "80gsm copier paper",
+        "part_number": "PAP-A4",
+        "alternate_part_number": "",
+        "category": "stationery",
+        "location": "Aisle 2 / Bin 4",
+        "remarks": "",
+    },
+}
+
+_EXAMPLE_ACTIVITY_DETAIL_UPDATED = {
+    "slug": "a4-paper-updated",
+    "kind": "item_edit",
+    "action": "updated",
+    "previous_quantity": None,
+    "quantity": None,
+    "delta": None,
+    "recorded_on": "2026-09-22T10:10:00Z",
+    "recorded_by": _EXAMPLE_RECORDED_BY,
+    "remarks": "Item updated",
+    "reference": {"type": "item_activity", "slug": "a4-paper-updated"},
+    "payload": {
+        "changes": {
+            "name": {"from": "A4 paper", "to": "A4 copier paper"},
+            "location": {"from": "Aisle 2 / Bin 4", "to": "Aisle 3 / Bin 1"},
+        }
+    },
+}
+
+_EXAMPLE_ACTIVITY_DETAIL_RECEIVED = {
+    "slug": "a4-paper-received",
+    "kind": "incoming",
+    "action": "received",
+    "previous_quantity": "10.000",
+    "quantity": "20.000",
+    "delta": "10.000",
+    "recorded_on": "2026-09-22T11:00:00Z",
+    "recorded_by": _EXAMPLE_RECORDED_BY,
+    "remarks": "Warehouse receipt recv-po-a4-paper",
+    "reference": {"type": "warehouse_receipt", "slug": "recv-po-a4-paper"},
+    "payload": {
+        "amount": "10.000",
+        "previous_quantity": "10.000",
+        "quantity": "20.000",
+        "receipt": "recv-po-a4-paper",
+        "line": "a4-receipt-line",
+    },
+}
+
+_EXAMPLE_ACTIVITY_DETAIL_SUSPENDED = {
+    "slug": "a4-paper-suspended",
+    "kind": "item_edit",
+    "action": "suspended",
+    "previous_quantity": None,
+    "quantity": None,
+    "delta": None,
+    "recorded_on": "2026-09-22T12:00:00Z",
+    "recorded_by": _EXAMPLE_RECORDED_BY,
+    "remarks": "Item suspended",
+    "reference": {"type": "item_activity", "slug": "a4-paper-suspended"},
+    "payload": {
+        "is_active": {"from": True, "to": False},
+        "actor": _EXAMPLE_RECORDED_BY,
+    },
+}
+
+_EXAMPLE_ACTIVITY_DETAIL_PHOTO = {
+    "slug": "a4-paper-photo-added",
+    "kind": "item_edit",
+    "action": "photo_added",
+    "previous_quantity": None,
+    "quantity": None,
+    "delta": None,
+    "recorded_on": "2026-09-22T10:15:00Z",
+    "recorded_by": _EXAMPLE_RECORDED_BY,
+    "remarks": "Photo added",
+    "reference": {"type": "item_activity", "slug": "a4-paper-photo-added"},
+    "payload": {"photo": "aisle-bin"},
+}
+
+_EXAMPLE_ACTIVITY_DETAIL_PHOTO_DELETED = {
+    "slug": "a4-paper-photo-deleted",
+    "kind": "item_edit",
+    "action": "photo_deleted",
+    "previous_quantity": None,
+    "quantity": None,
+    "delta": None,
+    "recorded_on": "2026-09-22T10:16:00Z",
+    "recorded_by": _EXAMPLE_RECORDED_BY,
+    "remarks": "Photo deleted",
+    "reference": {"type": "item_activity", "slug": "a4-paper-photo-deleted"},
+    "payload": {"photo": "aisle-bin"},
+}
+
+_EXAMPLE_ACTIVITY_DETAIL_UNSUSPENDED = {
+    "slug": "a4-paper-unsuspended",
+    "kind": "item_edit",
+    "action": "unsuspended",
+    "previous_quantity": None,
+    "quantity": None,
+    "delta": None,
+    "recorded_on": "2026-09-22T12:05:00Z",
+    "recorded_by": _EXAMPLE_RECORDED_BY,
+    "remarks": "Item unsuspended",
+    "reference": {"type": "item_activity", "slug": "a4-paper-unsuspended"},
+    "payload": {
+        "is_active": {"from": False, "to": True},
+        "actor": _EXAMPLE_RECORDED_BY,
+    },
+}
+
+_EXAMPLE_ACTIVITY_LIST = {
+    "count": 3,
+    "next": None,
+    "previous": None,
+    "results": [
+        _EXAMPLE_ACTIVITY_REMOVED,
+        _EXAMPLE_ACTIVITY_ADDED,
+        _EXAMPLE_ACTIVITY_CREATED,
+    ],
+}
+
+_EXAMPLE_ITEM_LIST = {
+    "count": 1,
+    "next": None,
+    "previous": None,
+    "results": [_EXAMPLE_ITEM],
 }
 
 _SLUG_PARAM = OpenApiParameter(
@@ -138,7 +377,18 @@ _NOT_FOUND = detail_response(
             ),
         ],
         responses={
-            200: ItemSerializer(many=True),
+            200: OpenApiResponse(
+                response=ItemSerializer(many=True),
+                description="Paginated item list. Every item field is included.",
+                examples=[
+                    OpenApiExample(
+                        "Item list",
+                        value=_EXAMPLE_ITEM_LIST,
+                        response_only=True,
+                        status_codes=["200"],
+                    )
+                ],
+            ),
             400: field_error_response(
                 OpenApiExample(
                     "Invalid status",
@@ -160,8 +410,26 @@ _NOT_FOUND = detail_response(
         tags=["Items"],
         summary="Create a catalog item",
         request=ItemCreateSerializer,
+        examples=[
+            OpenApiExample(
+                "Create item (all fields)",
+                value=_EXAMPLE_ITEM_CREATE,
+                request_only=True,
+            )
+        ],
         responses={
-            201: ItemSerializer,
+            201: OpenApiResponse(
+                response=ItemSerializer,
+                description="Created item. Stock starts at 0. No id.",
+                examples=[
+                    OpenApiExample(
+                        "Created item",
+                        value={**_EXAMPLE_ITEM, "photos": []},
+                        response_only=True,
+                        status_codes=["201"],
+                    )
+                ],
+            ),
             400: field_error_response(
                 OpenApiExample(
                     "Duplicate name",
@@ -171,21 +439,19 @@ _NOT_FOUND = detail_response(
                 ),
                 OpenApiExample(
                     "Warehouse required",
-                    value={"warehouse": ["A warehouse is required."]},
+                    value={"warehouse": ["This field is required."]},
+                    response_only=True,
+                    status_codes=["400"],
+                ),
+                OpenApiExample(
+                    "Unknown warehouse",
+                    value={"warehouse": ["Unknown warehouse."]},
                     response_only=True,
                     status_codes=["400"],
                 ),
             ),
             **error_responses(401, 403),
         },
-        examples=[
-            OpenApiExample(
-                "Created",
-                value=_EXAMPLE_ITEM,
-                response_only=True,
-                status_codes=["201"],
-            )
-        ],
     ),
 )
 class ItemListCreateView(generics.ListCreateAPIView):
@@ -259,15 +525,56 @@ class ItemListCreateView(generics.ListCreateAPIView):
         tags=["Items"],
         summary="Get a catalog item",
         parameters=[_SLUG_PARAM],
-        responses={200: ItemSerializer, 404: _NOT_FOUND, **error_responses(401, 403)},
+        responses={
+            200: OpenApiResponse(
+                response=ItemSerializer,
+                description="Full item object. No id.",
+                examples=[
+                    OpenApiExample(
+                        "Item",
+                        value=_EXAMPLE_ITEM,
+                        response_only=True,
+                        status_codes=["200"],
+                    )
+                ],
+            ),
+            404: _NOT_FOUND,
+            **error_responses(401, 403),
+        },
     ),
     patch=extend_schema(
         tags=["Items"],
         summary="Update a catalog item",
         parameters=[_SLUG_PARAM],
         request=ItemUpdateSerializer,
+        examples=[
+            OpenApiExample(
+                "Update item (all writable fields)",
+                value=_EXAMPLE_ITEM_UPDATE,
+                request_only=True,
+            )
+        ],
         responses={
-            200: ItemSerializer,
+            200: OpenApiResponse(
+                response=ItemSerializer,
+                description="Updated item. quantity_on_hand is unchanged.",
+                examples=[
+                    OpenApiExample(
+                        "Updated item",
+                        value={
+                            **_EXAMPLE_ITEM,
+                            "name": "A4 copier paper",
+                            "alternate_part_number": "PAP-A4-ALT",
+                            "location": "Aisle 3 / Bin 1",
+                            "remarks": "Keep dry",
+                            "last_purchase_date": "2026-09-18",
+                            "last_purchase_quantity": "10.000",
+                        },
+                        response_only=True,
+                        status_codes=["200"],
+                    )
+                ],
+            ),
             400: field_error_response(
                 OpenApiExample(
                     "Duplicate name",
@@ -401,8 +708,27 @@ class ItemUnsuspendView(_ItemStatusView):
     summary="Upload an item photo",
     parameters=[_SLUG_PARAM],
     request=ItemPhotoCreateSerializer,
+    examples=[
+        OpenApiExample(
+            "Uploaded photo",
+            value=_EXAMPLE_PHOTO,
+            response_only=True,
+            status_codes=["201"],
+        )
+    ],
     responses={
-        201: ItemPhotoSerializer,
+        201: OpenApiResponse(
+            response=ItemPhotoSerializer,
+            description="Stored photo. JPEG/PNG/GIF/WebP in; WebP out.",
+            examples=[
+                OpenApiExample(
+                    "Uploaded photo",
+                    value=_EXAMPLE_PHOTO,
+                    response_only=True,
+                    status_codes=["201"],
+                )
+            ],
+        ),
         400: field_error_response(
             OpenApiExample(
                 "Photo limit",
@@ -507,8 +833,35 @@ _ACTIVITY_SLUG_PARAM = OpenApiParameter(
     summary="Add or remove item stock",
     parameters=[_SLUG_PARAM],
     request=ItemStockAdjustSerializer,
+    examples=[
+        OpenApiExample(
+            "Add stock",
+            value={
+                "action": "add",
+                "quantity": "12.000",
+                "reason": "Opening balance",
+            },
+            request_only=True,
+        ),
+        OpenApiExample(
+            "Remove stock",
+            value={"action": "remove", "quantity": "2.000", "reason": "Damaged"},
+            request_only=True,
+        ),
+    ],
     responses={
-        200: ItemSerializer,
+        200: OpenApiResponse(
+            response=ItemSerializer,
+            description="Item after the stock change. All item fields. No id.",
+            examples=[
+                OpenApiExample(
+                    "After add",
+                    value=_EXAMPLE_ITEM_AFTER_STOCK,
+                    response_only=True,
+                    status_codes=["200"],
+                )
+            ],
+        ),
         400: field_error_response(
             OpenApiExample(
                 "Insufficient stock",
@@ -578,7 +931,18 @@ class ItemStockAdjustView(generics.GenericAPIView):
         ),
     ],
     responses={
-        200: ItemActivitySerializer(many=True),
+        200: OpenApiResponse(
+            response=ItemActivitySerializer(many=True),
+            description="Paginated history. Each row includes every list field.",
+            examples=[
+                OpenApiExample(
+                    "Activity list",
+                    value=_EXAMPLE_ACTIVITY_LIST,
+                    response_only=True,
+                    status_codes=["200"],
+                )
+            ],
+        ),
         400: field_error_response(
             OpenApiExample(
                 "Invalid kind",
@@ -630,7 +994,66 @@ class ItemActivityListView(generics.ListAPIView):
     summary="Get item activity details",
     parameters=[_SLUG_PARAM, _ACTIVITY_SLUG_PARAM],
     responses={
-        200: ItemActivityDetailSerializer,
+        200: OpenApiResponse(
+            response=ItemActivityDetailSerializer,
+            description="Activity row plus payload. Examples cover each action.",
+            examples=[
+                OpenApiExample(
+                    "Created",
+                    value=_EXAMPLE_ACTIVITY_DETAIL_CREATED,
+                    response_only=True,
+                    status_codes=["200"],
+                ),
+                OpenApiExample(
+                    "Updated",
+                    value=_EXAMPLE_ACTIVITY_DETAIL_UPDATED,
+                    response_only=True,
+                    status_codes=["200"],
+                ),
+                OpenApiExample(
+                    "Stock added",
+                    value=_EXAMPLE_ACTIVITY_DETAIL_ADDED,
+                    response_only=True,
+                    status_codes=["200"],
+                ),
+                OpenApiExample(
+                    "Stock removed",
+                    value=_EXAMPLE_ACTIVITY_DETAIL_REMOVED,
+                    response_only=True,
+                    status_codes=["200"],
+                ),
+                OpenApiExample(
+                    "Warehouse receipt",
+                    value=_EXAMPLE_ACTIVITY_DETAIL_RECEIVED,
+                    response_only=True,
+                    status_codes=["200"],
+                ),
+                OpenApiExample(
+                    "Suspended",
+                    value=_EXAMPLE_ACTIVITY_DETAIL_SUSPENDED,
+                    response_only=True,
+                    status_codes=["200"],
+                ),
+                OpenApiExample(
+                    "Photo added",
+                    value=_EXAMPLE_ACTIVITY_DETAIL_PHOTO,
+                    response_only=True,
+                    status_codes=["200"],
+                ),
+                OpenApiExample(
+                    "Photo deleted",
+                    value=_EXAMPLE_ACTIVITY_DETAIL_PHOTO_DELETED,
+                    response_only=True,
+                    status_codes=["200"],
+                ),
+                OpenApiExample(
+                    "Unsuspended",
+                    value=_EXAMPLE_ACTIVITY_DETAIL_UNSUSPENDED,
+                    response_only=True,
+                    status_codes=["200"],
+                ),
+            ],
+        ),
         404: _NOT_FOUND,
         **error_responses(401, 403),
     },

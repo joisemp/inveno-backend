@@ -1088,6 +1088,25 @@ Registering an org auto-creates a warehouse named `Warehouse`.
 
 Paginated. Optional `status=active` or `status=suspended`.
 
+**Success `200` (GET):**
+```json
+{
+  "count": 1,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "slug": "warehouse",
+      "name": "Warehouse",
+      "location": "",
+      "is_active": true,
+      "created_at": "2026-09-17T10:00:00Z",
+      "updated_at": "2026-09-17T10:00:00Z"
+    }
+  ]
+}
+```
+
 **Request (POST):**
 ```json
 { "name": "South store", "location": "Dock 2" }
@@ -1120,6 +1139,23 @@ Paginated. Optional `status=active` or `status=suspended`.
 
 PATCH any subset of `name`, `location`, `is_active`.
 
+**Request (PATCH, all writable fields):**
+```json
+{ "name": "Main warehouse", "location": "Building A", "is_active": true }
+```
+
+**Success `200`:**
+```json
+{
+  "slug": "warehouse",
+  "name": "Main warehouse",
+  "location": "Building A",
+  "is_active": true,
+  "created_at": "2026-09-17T10:00:00Z",
+  "updated_at": "2026-09-22T10:00:00Z"
+}
+```
+
 ---
 
 ## Item categories
@@ -1139,7 +1175,16 @@ Reusable org-wide categories. Items in different warehouses can share one.
 { "name": "Stationery" }
 ```
 
-**Success `201`:** `{ "slug": "stationery", "name": "Stationery", "is_active": true, "created_at": "...", "updated_at": "..." }`
+**Success `201`:**
+```json
+{
+  "slug": "stationery",
+  "name": "Stationery",
+  "is_active": true,
+  "created_at": "2026-09-17T10:00:00Z",
+  "updated_at": "2026-09-17T10:00:00Z"
+}
+```
 
 **Error `400` — duplicate name:**
 ```json
@@ -1153,6 +1198,22 @@ Reusable org-wide categories. Items in different warehouses can share one.
 | **GET / PATCH** | `/api/orgs/item-categories/{slug}/` |
 
 PATCH `name` and/or `is_active`.
+
+**Request (PATCH, all writable fields):**
+```json
+{ "name": "Office stationery", "is_active": true }
+```
+
+**Success `200`:**
+```json
+{
+  "slug": "stationery",
+  "name": "Office stationery",
+  "is_active": true,
+  "created_at": "2026-09-17T10:00:00Z",
+  "updated_at": "2026-09-22T10:00:00Z"
+}
+```
 
 ---
 
@@ -1202,7 +1263,12 @@ Paginated. Optional `status=active` or `status=suspended`. Optional
       "balance_in_stock": "0.000",
       "last_purchase_date": null,
       "last_purchase_quantity": null,
-      "photos": [],
+      "photos": [
+        {
+          "slug": "aisle-bin",
+          "url": "http://localhost:8000/media/items/2026/09/aisle-bin.webp"
+        }
+      ],
       "is_active": true,
       "created_at": "2026-09-17T10:00:00Z",
       "updated_at": "2026-09-17T10:00:00Z"
@@ -1249,8 +1315,29 @@ warehouse.
 }
 ```
 
-**Success `201`:** item object with `"quantity_on_hand": "0.000"` and
-`"photos": []`.
+**Success `201`:**
+```json
+{
+  "slug": "a4-paper",
+  "warehouse": "warehouse",
+  "name": "A4 paper",
+  "description": "80gsm copier paper",
+  "part_number": "PAP-A4",
+  "alternate_part_number": "",
+  "unit": "ream",
+  "category": "stationery",
+  "location": "Aisle 2 / Bin 4",
+  "remarks": "",
+  "quantity_on_hand": "0.000",
+  "balance_in_stock": "0.000",
+  "last_purchase_date": null,
+  "last_purchase_quantity": null,
+  "photos": [],
+  "is_active": true,
+  "created_at": "2026-09-17T10:00:00Z",
+  "updated_at": "2026-09-17T10:00:00Z"
+}
+```
 
 **Error `400` — duplicate name:**
 ```json
@@ -1260,6 +1347,11 @@ warehouse.
 **Error `400` — missing warehouse:**
 ```json
 { "warehouse": ["This field is required."] }
+```
+
+**Error `400` — unknown warehouse:**
+```json
+{ "warehouse": ["Unknown warehouse."] }
 ```
 
 ---
@@ -1277,7 +1369,51 @@ PATCH any subset of `warehouse`, `name`, `description`, `part_number`,
 `last_purchase_date`, `last_purchase_quantity`. `quantity_on_hand` is not
 writable. Last-purchase fields also auto-update when a receipt is completed.
 
-**Success `200`:** item object (no `id`).
+**Request (any subset; all writable fields shown):**
+```json
+{
+  "warehouse": "warehouse",
+  "name": "A4 copier paper",
+  "unit": "ream",
+  "description": "80gsm copier paper",
+  "part_number": "PAP-A4",
+  "alternate_part_number": "PAP-A4-ALT",
+  "category": "stationery",
+  "location": "Aisle 3 / Bin 1",
+  "remarks": "Keep dry",
+  "last_purchase_date": "2026-09-18",
+  "last_purchase_quantity": "10.000"
+}
+```
+
+**Success `200`:**
+```json
+{
+  "slug": "a4-paper",
+  "warehouse": "warehouse",
+  "name": "A4 copier paper",
+  "description": "80gsm copier paper",
+  "part_number": "PAP-A4",
+  "alternate_part_number": "PAP-A4-ALT",
+  "unit": "ream",
+  "category": "stationery",
+  "location": "Aisle 3 / Bin 1",
+  "remarks": "Keep dry",
+  "quantity_on_hand": "0.000",
+  "balance_in_stock": "0.000",
+  "last_purchase_date": "2026-09-18",
+  "last_purchase_quantity": "10.000",
+  "photos": [
+    {
+      "slug": "aisle-bin",
+      "url": "http://localhost:8000/media/items/2026/09/aisle-bin.webp"
+    }
+  ],
+  "is_active": true,
+  "created_at": "2026-09-17T10:00:00Z",
+  "updated_at": "2026-09-22T10:10:00Z"
+}
+```
 
 ---
 
@@ -1291,9 +1427,14 @@ writable. Last-purchase fields also auto-update when a receipt is completed.
 
 JPEG, PNG, GIF, or WebP in; stored as WebP. Maximum 5 photos per item.
 
+**Request:** `multipart/form-data` with field `image` (the file). No other body fields.
+
 **Success `201`:**
 ```json
-{ "slug": "aisle-bin", "url": "http://localhost:8000/media/items/2026/09/aisle-bin.webp" }
+{
+  "slug": "aisle-bin",
+  "url": "http://localhost:8000/media/items/2026/09/aisle-bin.webp"
+}
 ```
 
 **Error `400` — sixth photo:**
@@ -1326,8 +1467,34 @@ always positive. `remove` cannot take on-hand below 0. Does **not** stamp
 { "action": "remove", "quantity": "2.000", "reason": "Damaged" }
 ```
 
-**Success `200`:** item object with the new `quantity_on_hand` / `balance_in_stock`
-(no `id`).
+**Success `200`:**
+```json
+{
+  "slug": "a4-paper",
+  "warehouse": "warehouse",
+  "name": "A4 paper",
+  "description": "80gsm copier paper",
+  "part_number": "PAP-A4",
+  "alternate_part_number": "",
+  "unit": "ream",
+  "category": "stationery",
+  "location": "Aisle 2 / Bin 4",
+  "remarks": "",
+  "quantity_on_hand": "12.000",
+  "balance_in_stock": "12.000",
+  "last_purchase_date": null,
+  "last_purchase_quantity": null,
+  "photos": [
+    {
+      "slug": "aisle-bin",
+      "url": "http://localhost:8000/media/items/2026/09/aisle-bin.webp"
+    }
+  ],
+  "is_active": true,
+  "created_at": "2026-09-17T10:00:00Z",
+  "updated_at": "2026-09-22T10:00:00Z"
+}
+```
 
 **Error `400` — insufficient stock:**
 ```json
@@ -1353,23 +1520,62 @@ only — no `id`. Stock rows include `previous_quantity`, `quantity`, `delta`.
 `recorded_by.slug` is the member (UserProfile) slug. `reference` is the source
 document (`warehouse_receipt`) when one exists, otherwise this activity.
 
-**Success `200` (one incoming row):**
+**Success `200`:**
 ```json
 {
-  "slug": "a4-paper-added",
-  "kind": "incoming",
-  "action": "added",
-  "previous_quantity": "0.000",
-  "quantity": "12.000",
-  "delta": "12.000",
-  "recorded_on": "2025-12-20T16:23:00Z",
-  "recorded_by": {
-    "slug": "jefin-james",
-    "full_name": "Jefin James",
-    "user_type": "warehouse_manager"
-  },
-  "remarks": "Opening balance",
-  "reference": { "type": "item_activity", "slug": "a4-paper-added" }
+  "count": 3,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "slug": "a4-paper-removed",
+      "kind": "outgoing",
+      "action": "removed",
+      "previous_quantity": "12.000",
+      "quantity": "10.000",
+      "delta": "-2.000",
+      "recorded_on": "2026-09-22T10:05:00Z",
+      "recorded_by": {
+        "slug": "jefin-james",
+        "full_name": "Jefin James",
+        "user_type": "warehouse_manager"
+      },
+      "remarks": "Damaged",
+      "reference": { "type": "item_activity", "slug": "a4-paper-removed" }
+    },
+    {
+      "slug": "a4-paper-added",
+      "kind": "incoming",
+      "action": "added",
+      "previous_quantity": "0.000",
+      "quantity": "12.000",
+      "delta": "12.000",
+      "recorded_on": "2026-09-22T10:00:00Z",
+      "recorded_by": {
+        "slug": "jefin-james",
+        "full_name": "Jefin James",
+        "user_type": "warehouse_manager"
+      },
+      "remarks": "Opening balance",
+      "reference": { "type": "item_activity", "slug": "a4-paper-added" }
+    },
+    {
+      "slug": "a4-paper-created",
+      "kind": "item_edit",
+      "action": "created",
+      "previous_quantity": null,
+      "quantity": null,
+      "delta": null,
+      "recorded_on": "2026-09-22T09:55:00Z",
+      "recorded_by": {
+        "slug": "jefin-james",
+        "full_name": "Jefin James",
+        "user_type": "warehouse_manager"
+      },
+      "remarks": "Item created",
+      "reference": { "type": "item_activity", "slug": "a4-paper-created" }
+    }
+  ]
 }
 ```
 
@@ -1387,8 +1593,145 @@ document (`warehouse_receipt`) when one exists, otherwise this activity.
 | **Method / URL** | `GET /api/orgs/items/{slug}/activity/{activity_slug}/` |
 | **Auth** | Bearer — central admin, operation incharge, or warehouse manager |
 
-Same fields as the list row plus `payload`. Suspend includes who did it and
-`is_active` from/to. Every row has `recorded_on` (datetime).
+Same fields as the list row plus `payload`. Every row has `recorded_on`.
+
+**Success `200` — created:**
+```json
+{
+  "slug": "a4-paper-created",
+  "kind": "item_edit",
+  "action": "created",
+  "previous_quantity": null,
+  "quantity": null,
+  "delta": null,
+  "recorded_on": "2026-09-22T09:55:00Z",
+  "recorded_by": {
+    "slug": "jefin-james",
+    "full_name": "Jefin James",
+    "user_type": "warehouse_manager"
+  },
+  "remarks": "Item created",
+  "reference": { "type": "item_activity", "slug": "a4-paper-created" },
+  "payload": {
+    "warehouse": "warehouse",
+    "name": "A4 paper",
+    "unit": "ream",
+    "description": "80gsm copier paper",
+    "part_number": "PAP-A4",
+    "alternate_part_number": "",
+    "category": "stationery",
+    "location": "Aisle 2 / Bin 4",
+    "remarks": ""
+  }
+}
+```
+
+**Success `200` — updated:**
+```json
+{
+  "slug": "a4-paper-updated",
+  "kind": "item_edit",
+  "action": "updated",
+  "previous_quantity": null,
+  "quantity": null,
+  "delta": null,
+  "recorded_on": "2026-09-22T10:10:00Z",
+  "recorded_by": {
+    "slug": "jefin-james",
+    "full_name": "Jefin James",
+    "user_type": "warehouse_manager"
+  },
+  "remarks": "Item updated",
+  "reference": { "type": "item_activity", "slug": "a4-paper-updated" },
+  "payload": {
+    "changes": {
+      "name": { "from": "A4 paper", "to": "A4 copier paper" },
+      "location": { "from": "Aisle 2 / Bin 4", "to": "Aisle 3 / Bin 1" }
+    }
+  }
+}
+```
+
+**Success `200` — stock added:**
+```json
+{
+  "slug": "a4-paper-added",
+  "kind": "incoming",
+  "action": "added",
+  "previous_quantity": "0.000",
+  "quantity": "12.000",
+  "delta": "12.000",
+  "recorded_on": "2026-09-22T10:00:00Z",
+  "recorded_by": {
+    "slug": "jefin-james",
+    "full_name": "Jefin James",
+    "user_type": "warehouse_manager"
+  },
+  "remarks": "Opening balance",
+  "reference": { "type": "item_activity", "slug": "a4-paper-added" },
+  "payload": {
+    "action": "add",
+    "amount": "12.000",
+    "previous_quantity": "0.000",
+    "quantity": "12.000",
+    "reason": "Opening balance"
+  }
+}
+```
+
+**Success `200` — stock removed:**
+```json
+{
+  "slug": "a4-paper-removed",
+  "kind": "outgoing",
+  "action": "removed",
+  "previous_quantity": "12.000",
+  "quantity": "10.000",
+  "delta": "-2.000",
+  "recorded_on": "2026-09-22T10:05:00Z",
+  "recorded_by": {
+    "slug": "jefin-james",
+    "full_name": "Jefin James",
+    "user_type": "warehouse_manager"
+  },
+  "remarks": "Damaged",
+  "reference": { "type": "item_activity", "slug": "a4-paper-removed" },
+  "payload": {
+    "action": "remove",
+    "amount": "2.000",
+    "previous_quantity": "12.000",
+    "quantity": "10.000",
+    "reason": "Damaged"
+  }
+}
+```
+
+**Success `200` — warehouse receipt:**
+```json
+{
+  "slug": "a4-paper-received",
+  "kind": "incoming",
+  "action": "received",
+  "previous_quantity": "10.000",
+  "quantity": "20.000",
+  "delta": "10.000",
+  "recorded_on": "2026-09-22T11:00:00Z",
+  "recorded_by": {
+    "slug": "jefin-james",
+    "full_name": "Jefin James",
+    "user_type": "warehouse_manager"
+  },
+  "remarks": "Warehouse receipt recv-po-a4-paper",
+  "reference": { "type": "warehouse_receipt", "slug": "recv-po-a4-paper" },
+  "payload": {
+    "amount": "10.000",
+    "previous_quantity": "10.000",
+    "quantity": "20.000",
+    "receipt": "recv-po-a4-paper",
+    "line": "a4-receipt-line"
+  }
+}
+```
 
 **Success `200` — suspended:**
 ```json
@@ -1399,7 +1742,7 @@ Same fields as the list row plus `payload`. Suspend includes who did it and
   "previous_quantity": null,
   "quantity": null,
   "delta": null,
-  "recorded_on": "2025-12-20T16:23:00Z",
+  "recorded_on": "2026-09-22T12:00:00Z",
   "recorded_by": {
     "slug": "jefin-james",
     "full_name": "Jefin James",
@@ -1415,6 +1758,76 @@ Same fields as the list row plus `payload`. Suspend includes who did it and
       "user_type": "warehouse_manager"
     }
   }
+}
+```
+
+**Success `200` — unsuspended:**
+```json
+{
+  "slug": "a4-paper-unsuspended",
+  "kind": "item_edit",
+  "action": "unsuspended",
+  "previous_quantity": null,
+  "quantity": null,
+  "delta": null,
+  "recorded_on": "2026-09-22T12:05:00Z",
+  "recorded_by": {
+    "slug": "jefin-james",
+    "full_name": "Jefin James",
+    "user_type": "warehouse_manager"
+  },
+  "remarks": "Item unsuspended",
+  "reference": { "type": "item_activity", "slug": "a4-paper-unsuspended" },
+  "payload": {
+    "is_active": { "from": false, "to": true },
+    "actor": {
+      "slug": "jefin-james",
+      "full_name": "Jefin James",
+      "user_type": "warehouse_manager"
+    }
+  }
+}
+```
+
+**Success `200` — photo added:**
+```json
+{
+  "slug": "a4-paper-photo-added",
+  "kind": "item_edit",
+  "action": "photo_added",
+  "previous_quantity": null,
+  "quantity": null,
+  "delta": null,
+  "recorded_on": "2026-09-22T10:15:00Z",
+  "recorded_by": {
+    "slug": "jefin-james",
+    "full_name": "Jefin James",
+    "user_type": "warehouse_manager"
+  },
+  "remarks": "Photo added",
+  "reference": { "type": "item_activity", "slug": "a4-paper-photo-added" },
+  "payload": { "photo": "aisle-bin" }
+}
+```
+
+**Success `200` — photo deleted:**
+```json
+{
+  "slug": "a4-paper-photo-deleted",
+  "kind": "item_edit",
+  "action": "photo_deleted",
+  "previous_quantity": null,
+  "quantity": null,
+  "delta": null,
+  "recorded_on": "2026-09-22T10:16:00Z",
+  "recorded_by": {
+    "slug": "jefin-james",
+    "full_name": "Jefin James",
+    "user_type": "warehouse_manager"
+  },
+  "remarks": "Photo deleted",
+  "reference": { "type": "item_activity", "slug": "a4-paper-photo-deleted" },
+  "payload": { "photo": "aisle-bin" }
 }
 ```
 
@@ -2193,4 +2606,5 @@ You will see the full email body including the password reset or Get Started lin
 | 1.5.0 | 2026-09-17 | Spaces, `operation_incharge` / `space_incharge`, item catalog, purchase flow (RFQ, per-line award, PO, QC, warehouse, HMAC trail, PDF/Excel) |
 | 1.6.0 | 2026-09-18 | Warehouses, item categories, catalog fields, WebP photos (max 5), receipts credit a warehouse |
 | 1.7.0 | 2026-09-18 | Receipt GET `source_item` / `suggested_items` so the UI can prompt add-stock vs new item |
+| 1.8.1 | 2026-09-22 | Swagger + FRONTEND_API examples include every request and response field for items, stock, activity, warehouses, and categories |
 | 1.8.0 | 2026-09-22 | Duplicate slugs use `{base}-{YYYYMMDD}-{letter}`; item stock add/remove; item activity log |
