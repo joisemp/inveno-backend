@@ -1,0 +1,25 @@
+---
+description: Every Item mutation must write an ItemActivity row in the same transaction
+alwaysApply: true
+---
+
+# Item activity log
+
+Any create, catalog update, photo add/delete, suspend/unsuspend, stock add/remove,
+warehouse receipt increment, or future issue/transfer on `Item` must call
+`record_item_activity` in the **same** `@transaction.atomic` as the domain write.
+
+- Pass the acting `UserProfile`. Persist `actor_slug`, `actor_full_name`, and
+  `actor_user_type` snapshots on the row.
+- `kind` is `incoming`, `outgoing`, or `item_edit`.
+- Every row has `created_at` (`recorded_on` in JSON) and `recorded_by`.
+- Suspend/unsuspend payload includes `actor` plus `is_active` from/to.
+- Stock quantity changes only via `POST /api/orgs/items/{slug}/stock/`,
+  receipt `increment_stock`, or a future logged outgoing path — never on
+  create or PATCH item.
+- Add/remove stock never stamps last-purchase. Stock never goes negative.
+- List stock rows include `previous_quantity`, `quantity`, `delta`.
+- `reference` is the source document (`warehouse_receipt`) when one exists.
+- Public JSON and URLs use **slug only** (never UUID `id`).
+- `get_slug_source()` is `"{item.name} {action}"`.
+- Ship tests + FRONTEND_API / frontend_guide / OpenAPI for new actions.

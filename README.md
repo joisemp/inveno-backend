@@ -34,7 +34,7 @@ docker compose up --build
 ### 3. Demo logins (seeded after migrate)
 
 First boot creates a demo org, catalog, vendors, and purchase-flow rows.
-Later attached starts pause: **k** keep / **w** wipe. Password for all: `DemoPass123!`.
+Use attached `docker compose up` (not `-d`); later starts pause so you can type **k** keep / **w** wipe. Password for all: `DemoPass123!`.
 
 | Login (email) | Role |
 |---|---|

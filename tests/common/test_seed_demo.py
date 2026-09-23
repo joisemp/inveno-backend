@@ -59,6 +59,7 @@ class TestSeedDemo:
         )
         assert "Keeping existing" in output
         assert "Demo users created" not in output
+        assert "Choice [k/w]" not in output
 
     def test_second_run_without_flags_keeps_when_not_a_tty(self):
         _seed()

@@ -108,7 +108,22 @@ def _status_filter(qs, request):
             )
         ],
         responses={
-            200: WarehouseSerializer(many=True),
+            200: OpenApiResponse(
+                response=WarehouseSerializer(many=True),
+                examples=[
+                    OpenApiExample(
+                        "Warehouse list",
+                        value={
+                            "count": 1,
+                            "next": None,
+                            "previous": None,
+                            "results": [_EXAMPLE_WAREHOUSE],
+                        },
+                        response_only=True,
+                        status_codes=["200"],
+                    )
+                ],
+            ),
             400: field_error_response(
                 OpenApiExample(
                     "Invalid status",
@@ -124,8 +139,32 @@ def _status_filter(qs, request):
         tags=["Warehouses"],
         summary="Create a warehouse",
         request=WarehouseCreateSerializer,
+        examples=[
+            OpenApiExample(
+                "Create warehouse (all fields)",
+                value={"name": "Warehouse", "location": "Building A"},
+                request_only=True,
+            ),
+            OpenApiExample(
+                "Created",
+                value={**_EXAMPLE_WAREHOUSE, "location": "Building A"},
+                response_only=True,
+                status_codes=["201"],
+            ),
+        ],
         responses={
-            201: WarehouseSerializer,
+            201: OpenApiResponse(
+                response=WarehouseSerializer,
+                description="Created warehouse. Slug is generated.",
+                examples=[
+                    OpenApiExample(
+                        "Created",
+                        value={**_EXAMPLE_WAREHOUSE, "location": "Building A"},
+                        response_only=True,
+                        status_codes=["201"],
+                    )
+                ],
+            ),
             400: field_error_response(
                 OpenApiExample(
                     "Duplicate name",
@@ -136,14 +175,6 @@ def _status_filter(qs, request):
             ),
             **error_responses(401, 403),
         },
-        examples=[
-            OpenApiExample(
-                "Created",
-                value=_EXAMPLE_WAREHOUSE,
-                response_only=True,
-                status_codes=["201"],
-            )
-        ],
     ),
 )
 class WarehouseListCreateView(generics.ListCreateAPIView):
@@ -196,7 +227,17 @@ class WarehouseListCreateView(generics.ListCreateAPIView):
         summary="Get a warehouse",
         parameters=[_WH_SLUG],
         responses={
-            200: WarehouseSerializer,
+            200: OpenApiResponse(
+                response=WarehouseSerializer,
+                examples=[
+                    OpenApiExample(
+                        "Warehouse",
+                        value=_EXAMPLE_WAREHOUSE,
+                        response_only=True,
+                        status_codes=["200"],
+                    )
+                ],
+            ),
             404: _WH_NOT_FOUND,
             **error_responses(401, 403),
         },
@@ -206,8 +247,43 @@ class WarehouseListCreateView(generics.ListCreateAPIView):
         summary="Update a warehouse",
         parameters=[_WH_SLUG],
         request=WarehouseUpdateSerializer,
+        examples=[
+            OpenApiExample(
+                "Update warehouse (all writable fields)",
+                value={
+                    "name": "Main warehouse",
+                    "location": "Building A",
+                    "is_active": True,
+                },
+                request_only=True,
+            ),
+            OpenApiExample(
+                "Updated",
+                value={
+                    **_EXAMPLE_WAREHOUSE,
+                    "name": "Main warehouse",
+                    "location": "Building A",
+                },
+                response_only=True,
+                status_codes=["200"],
+            ),
+        ],
         responses={
-            200: WarehouseSerializer,
+            200: OpenApiResponse(
+                response=WarehouseSerializer,
+                examples=[
+                    OpenApiExample(
+                        "Updated",
+                        value={
+                            **_EXAMPLE_WAREHOUSE,
+                            "name": "Main warehouse",
+                            "location": "Building A",
+                        },
+                        response_only=True,
+                        status_codes=["200"],
+                    )
+                ],
+            ),
             400: field_error_response(
                 OpenApiExample(
                     "Duplicate name",
@@ -259,14 +335,55 @@ class WarehouseRetrieveUpdateView(generics.RetrieveUpdateAPIView):
     get=extend_schema(
         tags=["Item categories"],
         summary="List item categories",
-        responses={200: ItemCategorySerializer(many=True), **error_responses(401, 403)},
+        responses={
+            200: OpenApiResponse(
+                response=ItemCategorySerializer(many=True),
+                examples=[
+                    OpenApiExample(
+                        "Category list",
+                        value={
+                            "count": 1,
+                            "next": None,
+                            "previous": None,
+                            "results": [_EXAMPLE_CATEGORY],
+                        },
+                        response_only=True,
+                        status_codes=["200"],
+                    )
+                ],
+            ),
+            **error_responses(401, 403),
+        },
     ),
     post=extend_schema(
         tags=["Item categories"],
         summary="Create an item category",
         request=ItemCategoryCreateSerializer,
+        examples=[
+            OpenApiExample(
+                "Create category",
+                value={"name": "Stationery"},
+                request_only=True,
+            ),
+            OpenApiExample(
+                "Created",
+                value=_EXAMPLE_CATEGORY,
+                response_only=True,
+                status_codes=["201"],
+            ),
+        ],
         responses={
-            201: ItemCategorySerializer,
+            201: OpenApiResponse(
+                response=ItemCategorySerializer,
+                examples=[
+                    OpenApiExample(
+                        "Created",
+                        value=_EXAMPLE_CATEGORY,
+                        response_only=True,
+                        status_codes=["201"],
+                    )
+                ],
+            ),
             400: field_error_response(
                 OpenApiExample(
                     "Duplicate name",
@@ -277,14 +394,6 @@ class WarehouseRetrieveUpdateView(generics.RetrieveUpdateAPIView):
             ),
             **error_responses(401, 403),
         },
-        examples=[
-            OpenApiExample(
-                "Created",
-                value=_EXAMPLE_CATEGORY,
-                response_only=True,
-                status_codes=["201"],
-            )
-        ],
     ),
 )
 class ItemCategoryListCreateView(generics.ListCreateAPIView):
@@ -327,7 +436,17 @@ class ItemCategoryListCreateView(generics.ListCreateAPIView):
         summary="Get an item category",
         parameters=[_CAT_SLUG],
         responses={
-            200: ItemCategorySerializer,
+            200: OpenApiResponse(
+                response=ItemCategorySerializer,
+                examples=[
+                    OpenApiExample(
+                        "Category",
+                        value=_EXAMPLE_CATEGORY,
+                        response_only=True,
+                        status_codes=["200"],
+                    )
+                ],
+            ),
             404: _WH_NOT_FOUND,
             **error_responses(401, 403),
         },
@@ -337,8 +456,31 @@ class ItemCategoryListCreateView(generics.ListCreateAPIView):
         summary="Update an item category",
         parameters=[_CAT_SLUG],
         request=ItemCategoryUpdateSerializer,
+        examples=[
+            OpenApiExample(
+                "Update category (all writable fields)",
+                value={"name": "Office stationery", "is_active": True},
+                request_only=True,
+            ),
+            OpenApiExample(
+                "Updated",
+                value={**_EXAMPLE_CATEGORY, "name": "Office stationery"},
+                response_only=True,
+                status_codes=["200"],
+            ),
+        ],
         responses={
-            200: ItemCategorySerializer,
+            200: OpenApiResponse(
+                response=ItemCategorySerializer,
+                examples=[
+                    OpenApiExample(
+                        "Updated",
+                        value={**_EXAMPLE_CATEGORY, "name": "Office stationery"},
+                        response_only=True,
+                        status_codes=["200"],
+                    )
+                ],
+            ),
             400: field_error_response(
                 OpenApiExample(
                     "Duplicate name",

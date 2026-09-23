@@ -42,6 +42,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    attach: false
     restart: unless-stopped
 
   # ── Celery Beat ────────────────────────────────────────────────────────────
@@ -58,6 +59,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    attach: false
     restart: unless-stopped
 
   # ── PostgreSQL ─────────────────────────────────────────────────────────────
@@ -77,6 +79,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    attach: false
     restart: unless-stopped
 
   # ── Redis ──────────────────────────────────────────────────────────────────
@@ -89,6 +92,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    attach: false
     restart: unless-stopped
 
   # ── Mailpit (dev email inbox) ───────────────────────────────────────────────
@@ -97,6 +101,7 @@ services:
     ports:
       - "8025:8025"   # web UI  →  http://localhost:8025
       - "1025:1025"   # SMTP    →  Django sends here
+    attach: false
     restart: unless-stopped
 
 volumes:
