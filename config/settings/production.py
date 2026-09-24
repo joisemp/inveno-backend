@@ -83,6 +83,7 @@ _SPACES_CONFIG = {
     "file_overwrite": False,
     "custom_domain": _DO_CUSTOM_DOMAIN,
     "querystring_auth": False,
+    "signature_version": "s3v4",
 }
 
 STORAGES = {
@@ -95,11 +96,12 @@ STORAGES = {
         },
     },
     "staticfiles": {
-        # Static files
+        # Static files — overwrite so collectstatic can replace the manifest
         "BACKEND": "storages.backends.s3boto3.S3ManifestStaticStorage",
         "OPTIONS": {
             **_SPACES_CONFIG,
             "location": _STATIC_PREFIX.rstrip("/"),
+            "file_overwrite": True,
         },
     },
 }
