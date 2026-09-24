@@ -4,7 +4,7 @@
 # 1. Builds the production Docker image (multi-stage)
 # 2. Pushes versioned + latest tags to GitHub Container Registry (GHCR)
 # 3. Tests all migrations against a fresh Postgres — aborts if any fail
-# 4. Triggers Railway deploy webhook to redeploy with the new image
+# 4. Redeploys the Railway API service via CLI so it pulls :latest
 ###############################################################################
 name: Release — Build, Push & Deploy
 
@@ -125,13 +125,12 @@ jobs:
     name: Trigger Railway Redeploy
     runs-on: ubuntu-latest
     needs: test-migrations
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
 
     steps:
-      - name: Trigger Railway deploy webhook
-        run: |
-          curl -s -X POST "${{ secrets.RAILWAY_WEBHOOK_URL }}" \
-            -H "Content-Type: application/json" \
-            --fail \
-            --retry 3 \
-            --retry-delay 5
-          echo "Railway deploy webhook triggered."
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Redeploy API
+        run: railway redeploy --service "${{ secrets.RAILWAY_SERVICE_ID }}" -y
