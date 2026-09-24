@@ -1266,7 +1266,7 @@ Paginated. Optional `status=active` or `status=suspended`. Optional
       "photos": [
         {
           "slug": "aisle-bin",
-          "url": "http://localhost:8000/media/items/2026/09/aisle-bin.webp"
+          "url": "http://localhost:8000/api/orgs/items/a4-paper/photos/aisle-bin/file/"
         }
       ],
       "is_active": true,
@@ -1406,7 +1406,7 @@ writable. Last-purchase fields also auto-update when a receipt is completed.
   "photos": [
     {
       "slug": "aisle-bin",
-      "url": "http://localhost:8000/media/items/2026/09/aisle-bin.webp"
+      "url": "http://localhost:8000/api/orgs/items/a4-paper/photos/aisle-bin/file/"
     }
   ],
   "is_active": true,
@@ -1422,10 +1422,13 @@ writable. Last-purchase fields also auto-update when a receipt is completed.
 | | |
 |---|---|
 | **POST** | `/api/orgs/items/{slug}/photos/` (multipart field `image`) |
+| **GET** | `/api/orgs/items/{slug}/photos/{photo_slug}/file/` |
 | **DELETE** | `/api/orgs/items/{slug}/photos/{photo_slug}/` |
-| **Auth** | Bearer — central admin or warehouse manager |
+| **Auth** | POST/DELETE: Bearer — central admin or warehouse manager. GET file: Bearer — same roles as item list (`IsItemReader`). |
 
 JPEG, PNG, GIF, or WebP in; stored as WebP. Maximum 5 photos per item.
+`url` is the authenticated file path, not a public Spaces URL. Send the access
+token when fetching bytes (`<img src>` cannot).
 
 **Request:** `multipart/form-data` with field `image` (the file). No other body fields.
 
@@ -1433,7 +1436,7 @@ JPEG, PNG, GIF, or WebP in; stored as WebP. Maximum 5 photos per item.
 ```json
 {
   "slug": "aisle-bin",
-  "url": "http://localhost:8000/media/items/2026/09/aisle-bin.webp"
+  "url": "http://localhost:8000/api/orgs/items/a4-paper/photos/aisle-bin/file/"
 }
 ```
 
@@ -1441,6 +1444,10 @@ JPEG, PNG, GIF, or WebP in; stored as WebP. Maximum 5 photos per item.
 ```json
 { "detail": "An item can have at most 5 photos." }
 ```
+
+**Success `200` (file GET):** `Content-Type: image/webp` and WebP bytes.
+
+**Error `401` / `403` / `404` (file GET):** same `{ "detail": "..." }` shapes as other item routes.
 
 **Success `204`:** empty body on delete.
 
@@ -1487,7 +1494,7 @@ always positive. `remove` cannot take on-hand below 0. Does **not** stamp
   "photos": [
     {
       "slug": "aisle-bin",
-      "url": "http://localhost:8000/media/items/2026/09/aisle-bin.webp"
+      "url": "http://localhost:8000/api/orgs/items/a4-paper/photos/aisle-bin/file/"
     }
   ],
   "is_active": true,
@@ -2606,5 +2613,6 @@ You will see the full email body including the password reset or Get Started lin
 | 1.5.0 | 2026-09-17 | Spaces, `operation_incharge` / `space_incharge`, item catalog, purchase flow (RFQ, per-line award, PO, QC, warehouse, HMAC trail, PDF/Excel) |
 | 1.6.0 | 2026-09-18 | Warehouses, item categories, catalog fields, WebP photos (max 5), receipts credit a warehouse |
 | 1.7.0 | 2026-09-18 | Receipt GET `source_item` / `suggested_items` so the UI can prompt add-stock vs new item |
+| 1.8.2 | 2026-09-24 | Item photo `url` is an authenticated `/file/` path; media is private on Spaces |
 | 1.8.1 | 2026-09-22 | Swagger + FRONTEND_API examples include every request and response field for items, stock, activity, warehouses, and categories |
 | 1.8.0 | 2026-09-22 | Duplicate slugs use `{base}-{YYYYMMDD}-{letter}`; item stock add/remove; item activity log |

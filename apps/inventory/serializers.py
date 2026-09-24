@@ -1,5 +1,6 @@
 """Serializers for warehouses, categories, and the item catalog."""
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.urls import reverse
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
@@ -102,7 +103,7 @@ class ItemCategoryUpdateSerializer(serializers.Serializer):
 
 
 class ItemPhotoSerializer(serializers.ModelSerializer):
-    """Nested photo: public slug plus absolute media URL."""
+    """Nested photo: slug plus authenticated file URL (not a Spaces CDN path)."""
 
     url = serializers.SerializerMethodField()
 
@@ -114,11 +115,14 @@ class ItemPhotoSerializer(serializers.ModelSerializer):
     def get_url(self, obj) -> str:
         if not obj.image:
             return ""
+        path = reverse(
+            "inventory:item-photo-file",
+            kwargs={"slug": obj.item.slug, "photo_slug": obj.slug},
+        )
         request = self.context.get("request")
-        url = obj.image.url
         if request:
-            return request.build_absolute_uri(url)
-        return url
+            return request.build_absolute_uri(path)
+        return path
 
 
 class ItemPhotoCreateSerializer(serializers.Serializer):

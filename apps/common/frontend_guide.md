@@ -278,6 +278,7 @@ export type ItemCategory = {
 
 export type ItemPhoto = {
   slug: string;
+  /** Authenticated GET path — fetch with Authorization, do not use as img src. */
   url: string;
 };
 
@@ -927,6 +928,13 @@ export async function createItemPhoto(itemSlug: string, file: File) {
 
 export async function deleteItemPhoto(itemSlug: string, photoSlug: string) {
   await api.delete(`/api/orgs/items/${itemSlug}/photos/${photoSlug}/`);
+}
+
+/** Load a private photo. `<img src={photo.url}>` will not send the JWT. */
+export async function loadItemPhotoObjectUrl(photo: ItemPhoto): Promise<string> {
+  const path = new URL(photo.url, window.location.origin).pathname;
+  const { data } = await api.get<Blob>(path, { responseType: "blob" });
+  return URL.createObjectURL(data);
 }
 
 export async function adjustItemStock(slug: string, body: ItemStockAdjust) {

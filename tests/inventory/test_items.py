@@ -6,6 +6,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from PIL import Image
 
 from apps.inventory.models import Item, ItemPhoto, Warehouse
+from apps.organizations.models import Organization
 
 ITEMS = "/api/orgs/items/"
 CATEGORIES = "/api/orgs/item-categories/"
@@ -240,7 +241,9 @@ class TestItemPhotos:
         assert response.status_code == 201
         data = response.json()
         assert data["slug"] == "aisle-bin"
-        assert data["url"].endswith(".webp")
+        assert data["url"].endswith(
+            f"/api/orgs/items/{item.slug}/photos/{data['slug']}/file/"
+        )
         photo = ItemPhoto.objects.get(slug=data["slug"])
         assert photo.image.name.endswith(".webp")
         photo.image.open("rb")
@@ -281,3 +284,60 @@ class TestItemPhotos:
         deleted = warehouse_client.delete(f"{ITEMS}{item.slug}/photos/{slug}/")
         assert deleted.status_code == 204
         assert ItemPhoto.objects.filter(slug=slug).count() == 0
+
+    def test_file_requires_login(self, api_client, warehouse_client, test_org, warehouse):
+        item = Item.objects.create(
+            org=test_org, warehouse=warehouse, name="A4 paper", unit="ream"
+        )
+        created = warehouse_client.post(
+            f"{ITEMS}{item.slug}/photos/",
+            {"image": _png_upload("aisle-bin.png")},
+            format="multipart",
+        )
+        photo_slug = created.json()["slug"]
+        url = f"{ITEMS}{item.slug}/photos/{photo_slug}/file/"
+        assert api_client.get(url).status_code == 401
+
+    def test_file_forbidden_for_space_incharge(
+        self, assigned_space_client, warehouse_client, test_org, warehouse
+    ):
+        item = Item.objects.create(
+            org=test_org, warehouse=warehouse, name="A4 paper", unit="ream"
+        )
+        created = warehouse_client.post(
+            f"{ITEMS}{item.slug}/photos/",
+            {"image": _png_upload("aisle-bin.png")},
+            format="multipart",
+        )
+        photo_slug = created.json()["slug"]
+        url = f"{ITEMS}{item.slug}/photos/{photo_slug}/file/"
+        assert assigned_space_client.get(url).status_code == 403
+
+    def test_file_other_org_not_found(self, warehouse_client, warehouse):
+        other_org = Organization.objects.create(name="Other", org_suffix="other_media")
+        other_wh = Warehouse.objects.create(org=other_org, name="Elsewhere")
+        other_item = Item.objects.create(
+            org=other_org, warehouse=other_wh, name="Secret", unit="pcs"
+        )
+        url = f"{ITEMS}{other_item.slug}/photos/missing/file/"
+        assert warehouse_client.get(url).status_code == 404
+
+    def test_file_returns_webp(
+        self, warehouse_client, ops_client, test_org, warehouse
+    ):
+        item = Item.objects.create(
+            org=test_org, warehouse=warehouse, name="A4 paper", unit="ream"
+        )
+        created = warehouse_client.post(
+            f"{ITEMS}{item.slug}/photos/",
+            {"image": _png_upload("aisle-bin.png")},
+            format="multipart",
+        )
+        photo_slug = created.json()["slug"]
+        url = f"{ITEMS}{item.slug}/photos/{photo_slug}/file/"
+        response = ops_client.get(url)
+        assert response.status_code == 200
+        assert response["Content-Type"] == "image/webp"
+        body = b"".join(response.streaming_content)
+        assert body[:4] == b"RIFF"
+        assert body[8:12] == b"WEBP"
