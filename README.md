@@ -175,8 +175,14 @@ Static files and media uploads are served from DigitalOcean Spaces in production
 1. Create a Railway project and add **Postgres** and **Redis** plugins
 2. Add a service → **Deploy from image** → `ghcr.io/YOUR_ORG/inveno-api:latest`
 3. Set all required production env vars in the service settings
-4. Copy the **Deploy Webhook URL** from Railway → Settings → Deploy
-5. Add it as `RAILWAY_WEBHOOK_URL` in your GitHub repo secrets
+4. If the GHCR package is private, add a registry credential on the service so Railway can pull
+5. Create a **project token** (Railway → Project Settings → Tokens) for the production environment
+6. Copy the API **service UUID** from the browser URL (`/service/<uuid>`), not the private hostname
+7. Add GitHub Actions secrets (repo → Settings → Secrets and variables → Actions):
+   - `RAILWAY_TOKEN` — the project token
+   - `RAILWAY_SERVICE_ID` — the API service UUID
+
+Remove `RAILWAY_WEBHOOK_URL` if you added it earlier. Railway no longer has an incoming deploy webhook.
 
 ### Releasing a new version
 
@@ -187,7 +193,8 @@ Static files and media uploads are served from DigitalOcean Spaces in production
 # GitHub Actions will automatically:
 # 1. Build the prod image
 # 2. Push ghcr.io/YOUR_ORG/inveno-api:v1.2.0 + :latest to GHCR
-# 3. Trigger Railway to redeploy with the new image
+# 3. Test migrations against a fresh Postgres
+# 4. Run `railway redeploy` so Railway pulls :latest
 ```
 
 ### Rollback
