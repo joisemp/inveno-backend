@@ -32,13 +32,13 @@ fi
 
 # Demo seed is development-only (command no-ops when DEBUG is false).
 # Celery shares this image/entrypoint — do not prompt, seed, or collectstatic
-# on workers (collectstatic --clear would wipe the shared Spaces prefix).
+# on workers (a failed collectstatic --clear would wipe the shared Spaces prefix).
 if [ "$1" != "celery" ]; then
   echo "==> Demo seed..."
   python manage.py seed_demo
 
   echo "==> Collecting static files..."
-  python manage.py collectstatic --noinput --clear
+  python manage.py collectstatic --noinput
 fi
 
 echo "==> Starting server..."

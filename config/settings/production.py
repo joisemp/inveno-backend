@@ -96,12 +96,12 @@ STORAGES = {
         },
     },
     "staticfiles": {
-        # Static files — overwrite so collectstatic can replace the manifest
+        # Static files — file_overwrite stays False so exists() can HEAD S3
+        # during CSS manifest hashing (True makes exists() always False).
         "BACKEND": "storages.backends.s3boto3.S3ManifestStaticStorage",
         "OPTIONS": {
             **_SPACES_CONFIG,
             "location": _STATIC_PREFIX.rstrip("/"),
-            "file_overwrite": True,
         },
     },
 }
