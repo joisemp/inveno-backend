@@ -144,22 +144,22 @@ Both services share the same `DATABASE_URL` and `REDIS_URL` from Railway plugins
 
 ---
 
-## DigitalOcean Spaces (Static & Media — Production)
+## Static files and DigitalOcean Spaces (Production)
 
-Static files are served from DigitalOcean Spaces. Media uploads are stored
-privately and streamed only through authenticated API views.
+Admin and Swagger CSS/JS are served by **WhiteNoise** from the web process
+(`collectstatic` writes to `STATIC_ROOT` on start). They are not on Spaces.
+
+Media uploads (item photos and any future `FileField`) are stored privately on
+DigitalOcean Spaces and streamed only through authenticated `GET .../file/`
+views. The frontend fetches with the JWT and uses a blob URL.
 
 1. Create a Spaces bucket in your DO account
 2. Set the required env vars (`DO_SPACES_*`) in Railway
-3. Static files are uploaded automatically on deploy via `collectstatic` (web process only)
-4. Media files are uploaded on user upload (private ACL)
+3. Leave `media/*` private
+4. Static files are collected on the web process only (not Celery)
 
-`collectstatic` writes static objects with a `public-read` ACL so unsigned CDN
-URLs work. If the Space ignores object ACLs, allow public `GetObject` for
-`static/*` only. Leave `media/*` private. Anonymous requests return
-`AccessDenied` for both private and missing keys.
-
-**Bucket CORS** — add this rule in your Spaces bucket settings to allow browser uploads:
+**Bucket CORS** — only needed if the browser talks to Spaces directly (it should
+not for item photos). If you add one:
 
 ```json
 [

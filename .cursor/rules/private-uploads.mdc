@@ -1,0 +1,23 @@
+---
+description: User uploads stay private; API JSON uses an authenticated /file/ URL
+alwaysApply: true
+---
+
+# Private uploads
+
+Every new `FileField` / `ImageField` follows item photos. Do not put a public
+Spaces or `/media/` URL in API JSON.
+
+- Store on default storage (`MediaStorage` in production: private ACL, no CDN
+  `custom_domain`)
+- Add `GET .../{slug}/file/` (or equivalent) with the **same read permission**
+  as the parent resource. Path params use **slug only** (never UUID `id`)
+- Serializer `url` is `reverse` of that path plus `request.build_absolute_uri`.
+  Never return `obj.file.url` / `obj.image.url`
+- Frontend loads bytes with the access token and a blob URL. Never document
+  `<img src={url}>` or `<a href={url}>` alone
+- Tests in the same change: 200 + file bytes, 401 anonymous, 403/404 other org
+- Document the GET and the `url` shape in FRONTEND_API, frontend_guide, and
+  OpenAPI (`@extend_schema` success and errors)
+
+Canonical example: `GET /api/orgs/items/{slug}/photos/{photo_slug}/file/`
