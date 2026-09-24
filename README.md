@@ -150,8 +150,10 @@ Static files and media uploads are served from DigitalOcean Spaces in production
 
 1. Create a Spaces bucket in your DO account
 2. Set the required env vars (`DO_SPACES_*`) in Railway
-3. Static files are uploaded automatically on deploy via `collectstatic`
+3. Static files are uploaded automatically on deploy via `collectstatic` (web process only)
 4. Media files are uploaded on user upload
+
+`collectstatic` writes objects with a `public-read` ACL so unsigned CDN URLs work. If the Space ignores object ACLs, add a bucket policy (or file permission) that allows public `GetObject` for `static/*` and `media/*`. Anonymous requests return `AccessDenied` for both private and missing keys.
 
 **Bucket CORS** — add this rule in your Spaces bucket settings to allow browser uploads:
 
