@@ -7,6 +7,7 @@ from apps.inventory.views import (
     ItemListCreateView,
     ItemPhotoCreateView,
     ItemPhotoDeleteView,
+    ItemPhotoFileView,
     ItemRetrieveUpdateView,
     ItemStockAdjustView,
     ItemSuspendView,
@@ -54,6 +55,11 @@ urlpatterns = [
         "items/<slug:slug>/photos/",
         ItemPhotoCreateView.as_view(),
         name="item-photo-create",
+    ),
+    path(
+        "items/<slug:slug>/photos/<slug:photo_slug>/file/",
+        ItemPhotoFileView.as_view(),
+        name="item-photo-file",
     ),
     path(
         "items/<slug:slug>/photos/<slug:photo_slug>/",

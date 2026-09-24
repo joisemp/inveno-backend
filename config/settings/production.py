@@ -1,6 +1,7 @@
 """
 Production settings — deployed on Railway.
-DB and Redis are managed services; static/media served from DigitalOcean Spaces.
+DB and Redis are managed services. Public static files live on DigitalOcean
+Spaces; media is private and streamed through authenticated API views.
 """
 import os
 
@@ -70,38 +71,36 @@ else:
     _CDN_BASE = f"https://{_DO_BUCKET}.{_DO_REGION}.digitaloceanspaces.com"
 
 STATIC_URL = f"{_CDN_BASE}/{_STATIC_PREFIX}"
-MEDIA_URL = f"{_CDN_BASE}/{_MEDIA_PREFIX}"
 
-# Shared Spaces config passed to both backends
+# Shared Spaces config. Media must not set custom_domain (that would emit
+# public CDN URLs for private objects).
 _SPACES_CONFIG = {
     "bucket_name": _DO_BUCKET,
     "access_key": _DO_KEY,
     "secret_key": _DO_SECRET,
     "endpoint_url": _DO_ENDPOINT,
     "region_name": _DO_REGION,
-    "default_acl": "public-read",
     "file_overwrite": False,
-    "custom_domain": _DO_CUSTOM_DOMAIN,
     "querystring_auth": False,
     "signature_version": "s3v4",
 }
 
 STORAGES = {
     "default": {
-        # Media files
-        "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
+        "BACKEND": "apps.common.storages.MediaStorage",
         "OPTIONS": {
             **_SPACES_CONFIG,
             "location": _MEDIA_PREFIX.rstrip("/"),
+            "default_acl": "private",
         },
     },
     "staticfiles": {
-        # Static files — file_overwrite stays False so exists() can HEAD S3
-        # during CSS manifest hashing (True makes exists() always False).
-        "BACKEND": "storages.backends.s3boto3.S3ManifestStaticStorage",
+        "BACKEND": "apps.common.storages.StaticStorage",
         "OPTIONS": {
             **_SPACES_CONFIG,
             "location": _STATIC_PREFIX.rstrip("/"),
+            "default_acl": "public-read",
+            "custom_domain": _DO_CUSTOM_DOMAIN,
         },
     },
 }

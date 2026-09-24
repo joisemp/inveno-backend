@@ -1,5 +1,6 @@
 """API views for the org item catalog and photos."""
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.http import FileResponse
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
@@ -76,7 +77,7 @@ def _detail_from_validation_error(exc: DjangoValidationError) -> str:
 
 _EXAMPLE_PHOTO = {
     "slug": "aisle-bin",
-    "url": "http://localhost:8000/media/items/2026/09/aisle-bin.webp",
+    "url": "http://localhost:8000/api/orgs/items/a4-paper/photos/aisle-bin/file/",
 }
 
 _EXAMPLE_ITEM = {
@@ -818,6 +819,42 @@ class ItemPhotoDeleteView(generics.GenericAPIView):
         except ItemPhoto.DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@extend_schema(
+    tags=["Items"],
+    summary="Download an item photo",
+    parameters=[_SLUG_PARAM, _PHOTO_SLUG_PARAM],
+    responses={
+        200: OpenApiResponse(description="WebP image bytes (image/webp)."),
+        404: _NOT_FOUND,
+        **error_responses(401, 403),
+    },
+)
+class ItemPhotoFileView(generics.GenericAPIView):
+    """Stream a private item photo after org catalog read auth."""
+
+    permission_classes = [permissions.IsAuthenticated, IsItemReader]
+    serializer_class = EmptySerializer
+    lookup_field = "slug"
+    lookup_url_kwarg = "slug"
+
+    def get_queryset(self):
+        return Item.objects.filter(org=self.request.user.profile.org)
+
+    def get(self, request, *args, **kwargs):
+        item = self.get_object()
+        try:
+            photo = item.photos.get(slug=kwargs["photo_slug"])
+        except ItemPhoto.DoesNotExist:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        if not photo.image:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return FileResponse(
+            photo.image.open("rb"),
+            content_type="image/webp",
+            as_attachment=False,
+        )
 
 
 _ACTIVITY_SLUG_PARAM = OpenApiParameter(
