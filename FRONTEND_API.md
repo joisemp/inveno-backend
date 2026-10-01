@@ -1238,8 +1238,15 @@ incharges receive `403`. Public identifier is **`slug`**.
 | **Method / URL** | `GET /api/orgs/items/` |
 | **Auth** | Bearer — central admin, operation incharge, or warehouse manager |
 
-Paginated. Optional `status=active` or `status=suspended`. Optional
-`warehouse={slug}`.
+Paginated. **Default is active items only.** Query filters (combinable):
+
+- `status` — omitted or `active` (default), `suspended`, or `all`
+- `warehouse={slug}`
+- `category={slug}`
+- `search={q}` — name, slug, part number, or alternate part number
+
+Suspended items are not listed, searched, or attachable on PRs/receipts unless
+`status=suspended` or `status=all` on this list.
 
 **Success `200`:**
 ```json
@@ -1279,12 +1286,17 @@ Paginated. Optional `status=active` or `status=suspended`. Optional
 
 **Error `400` — invalid status:**
 ```json
-{ "status": ["Must be \"active\" or \"suspended\"."] }
+{ "status": ["Must be \"active\", \"suspended\", or \"all\"."] }
 ```
 
 **Error `400` — unknown warehouse filter:**
 ```json
 { "warehouse": ["Unknown warehouse."] }
+```
+
+**Error `400` — unknown category filter:**
+```json
+{ "category": ["Unknown category."] }
 ```
 
 ---
@@ -2613,6 +2625,7 @@ You will see the full email body including the password reset or Get Started lin
 | 1.5.0 | 2026-09-17 | Spaces, `operation_incharge` / `space_incharge`, item catalog, purchase flow (RFQ, per-line award, PO, QC, warehouse, HMAC trail, PDF/Excel) |
 | 1.6.0 | 2026-09-18 | Warehouses, item categories, catalog fields, WebP photos (max 5), receipts credit a warehouse |
 | 1.7.0 | 2026-09-18 | Receipt GET `source_item` / `suggested_items` so the UI can prompt add-stock vs new item |
+| 1.8.3 | 2026-10-01 | Item list defaults to active; `status`/`warehouse`/`category`/`search` filters |
 | 1.8.2 | 2026-09-24 | Item photo `url` is an authenticated `/file/` path; media is private on Spaces |
 | 1.8.1 | 2026-09-22 | Swagger + FRONTEND_API examples include every request and response field for items, stock, activity, warehouses, and categories |
 | 1.8.0 | 2026-09-22 | Duplicate slugs use `{base}-{YYYYMMDD}-{letter}`; item stock add/remove; item activity log |

@@ -72,6 +72,34 @@ class TestPurchaseRequestPermissions:
         assert response.status_code == 201
         assert response.json()["space"] is None
 
+    def test_create_rejects_suspended_item(
+        self, ops_client, test_org, warehouse
+    ):
+        item = Item.objects.create(
+            org=test_org,
+            warehouse=warehouse,
+            name="Old tape",
+            unit="roll",
+            is_active=False,
+        )
+        response = ops_client.post(
+            PR,
+            {
+                "title": "Need tape",
+                "lines": [
+                    {
+                        "description": "Tape",
+                        "quantity": "1",
+                        "unit": "roll",
+                        "item": item.slug,
+                    }
+                ],
+            },
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "item" in response.json()
+
     def test_warehouse_forbidden(self, warehouse_client):
         assert warehouse_client.get(PR).status_code == 403
 
@@ -519,6 +547,45 @@ class TestRevisionRejectAndQc:
         pdf = warehouse_client.get(f"{RECV}{receipt['slug']}/export/?format=pdf")
         assert pdf.status_code == 200
         assert pdf.content[:4] == b"%PDF"
+
+    def test_add_to_existing_rejects_suspended_item(
+        self, ops_client, warehouse_client, vendor_a, vendor_b, test_org, warehouse
+    ):
+        existing = Item.objects.create(
+            org=test_org,
+            warehouse=warehouse,
+            name="A4 paper stock",
+            unit="ream",
+            is_active=False,
+        )
+        _created, rfq, line_slugs = _submit_quoted_rfq(ops_client, vendor_a, vendor_b)
+        ops_client.post(
+            f"{RFQ}{rfq['slug']}/select-lines/",
+            {"selections": [{"line": line_slugs[0], "vendor": vendor_a.slug}]},
+            format="json",
+        )
+        po = ops_client.post(
+            f"{RFQ}{rfq['slug']}/purchase-orders/",
+            {"vendor": vendor_a.slug, "create_purchase_order": True},
+            format="json",
+        ).json()
+        ops_client.post(f"{PO}{po['slug']}/quality-check/", {"passed": True}, format="json")
+        receipt = warehouse_client.get(f"{RECV}?status=pending").json()["results"][0]
+        done = warehouse_client.post(
+            f"{RECV}{receipt['slug']}/complete/",
+            {
+                "lines": [
+                    {
+                        "line": receipt["lines"][0]["slug"],
+                        "action": "add_to_existing",
+                        "item": existing.slug,
+                    }
+                ]
+            },
+            format="json",
+        )
+        assert done.status_code == 400
+        assert done.json()["item"] == "An existing item slug is required to add to stock."
 
     def test_add_to_existing_rejects_other_warehouse(
         self, ops_client, warehouse_client, vendor_a, vendor_b, test_org, warehouse
