@@ -731,7 +731,9 @@ def complete_warehouse_receipt(
             if not item_slug:
                 raise ValidationError({"item": ITEM_REQUIRED})
             try:
-                item = Item.objects.get(org=receipt.org, slug=item_slug)
+                item = Item.objects.get(
+                    org=receipt.org, slug=item_slug, is_active=True
+                )
             except Item.DoesNotExist as exc:
                 raise ValidationError({"item": ITEM_REQUIRED}) from exc
             if item.warehouse_id != receipt.warehouse_id:

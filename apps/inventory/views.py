@@ -1,5 +1,6 @@
 """API views for the org item catalog and photos."""
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db.models import Q
 from django.http import FileResponse
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
@@ -13,7 +14,7 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 
 from apps.common.openapi import EmptySerializer, detail_response, error_responses
-from apps.inventory.models import Item, ItemActivity, ItemPhoto, Warehouse
+from apps.inventory.models import Item, ItemActivity, ItemCategory, ItemPhoto, Warehouse
 from apps.inventory.serializers import (
     ItemActivityDetailSerializer,
     ItemActivitySerializer,
@@ -41,9 +42,10 @@ from apps.inventory.services import (
 )
 from apps.organizations.permissions import IsItemReader, IsItemWriter
 
-ITEM_STATUS_VALUES = ("active", "suspended")
-INVALID_STATUS = 'Must be "active" or "suspended".'
+ITEM_STATUS_VALUES = ("active", "suspended", "all")
+INVALID_STATUS = 'Must be "active", "suspended", or "all".'
 UNKNOWN_WAREHOUSE = "Unknown warehouse."
+UNKNOWN_CATEGORY = "Unknown category."
 ACTIVITY_KIND_VALUES = (
     ItemActivity.Kind.INCOMING,
     ItemActivity.Kind.OUTGOING,
@@ -368,6 +370,8 @@ _NOT_FOUND = detail_response(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 enum=list(ITEM_STATUS_VALUES),
+                description="Omitted or active: active items only. "
+                "suspended / all are explicit.",
             ),
             OpenApiParameter(
                 name="warehouse",
@@ -375,6 +379,20 @@ _NOT_FOUND = detail_response(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description="Filter by warehouse slug.",
+            ),
+            OpenApiParameter(
+                name="category",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by category slug.",
+            ),
+            OpenApiParameter(
+                name="search",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Match name, slug, or part numbers.",
             ),
         ],
         responses={
@@ -400,6 +418,12 @@ _NOT_FOUND = detail_response(
                 OpenApiExample(
                     "Unknown warehouse",
                     value={"warehouse": [UNKNOWN_WAREHOUSE]},
+                    response_only=True,
+                    status_codes=["400"],
+                ),
+                OpenApiExample(
+                    "Unknown category",
+                    value={"category": [UNKNOWN_CATEGORY]},
                     response_only=True,
                     status_codes=["400"],
                 ),
@@ -474,13 +498,24 @@ class ItemListCreateView(generics.ListCreateAPIView):
             .order_by("name")
         )
         item_status = self.request.query_params.get("status")
-        if item_status == "active":
-            qs = qs.filter(is_active=True)
-        elif item_status == "suspended":
+        if item_status == "suspended":
             qs = qs.filter(is_active=False)
+        elif item_status != "all":
+            qs = qs.filter(is_active=True)
         warehouse_slug = self.request.query_params.get("warehouse")
         if warehouse_slug:
             qs = qs.filter(warehouse__slug=warehouse_slug)
+        category_slug = self.request.query_params.get("category")
+        if category_slug:
+            qs = qs.filter(category__slug=category_slug)
+        search = (self.request.query_params.get("search") or "").strip()
+        if search:
+            qs = qs.filter(
+                Q(name__icontains=search)
+                | Q(slug__icontains=search)
+                | Q(part_number__icontains=search)
+                | Q(alternate_part_number__icontains=search)
+            )
         return qs
 
     def list(self, request, *args, **kwargs):
@@ -490,12 +525,19 @@ class ItemListCreateView(generics.ListCreateAPIView):
                 {"status": [INVALID_STATUS]},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        org = request.user.profile.org
         warehouse_slug = request.query_params.get("warehouse")
         if warehouse_slug:
-            org = request.user.profile.org
             if not Warehouse.objects.filter(org=org, slug=warehouse_slug).exists():
                 return Response(
                     {"warehouse": [UNKNOWN_WAREHOUSE]},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        category_slug = request.query_params.get("category")
+        if category_slug:
+            if not ItemCategory.objects.filter(org=org, slug=category_slug).exists():
+                return Response(
+                    {"category": [UNKNOWN_CATEGORY]},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
         return super().list(request, *args, **kwargs)

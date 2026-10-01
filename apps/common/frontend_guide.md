@@ -882,8 +882,10 @@ export async function updateItemCategory(
 // ── Items ────────────────────────────────────────────────────────────────────
 
 export async function listItems(params?: {
-  status?: "active" | "suspended";
+  status?: "active" | "suspended" | "all";
   warehouse?: string;
+  category?: string;
+  search?: string;
   page?: number;
 }) {
   const { data } = await api.get<Paginated<Item>>("/api/orgs/items/", { params });
@@ -1513,7 +1515,9 @@ List endpoints return:
 }
 ```
 
-Pass `?page=2` and optional `?status=active|suspended` where supported.
+Pass `?page=2` and optional `?status=` where supported. Item list defaults to
+**active only**; use `status=suspended` or `status=all` to see suspended catalog
+rows. Do not attach a suspended item slug on a PR line or receipt.
 
 ---
 

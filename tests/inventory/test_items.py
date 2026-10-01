@@ -5,7 +5,7 @@ import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from PIL import Image
 
-from apps.inventory.models import Item, ItemPhoto, Warehouse
+from apps.inventory.models import Item, ItemCategory, ItemPhoto, Warehouse
 from apps.organizations.models import Organization
 
 ITEMS = "/api/orgs/items/"
@@ -161,6 +161,75 @@ class TestItemListCreate:
         assert names == ["A4 paper"]
         unknown = warehouse_client.get(ITEMS, {"warehouse": "missing"})
         assert unknown.status_code == 400
+
+    def test_list_omits_suspended_by_default(
+        self, warehouse_client, test_org, warehouse
+    ):
+        Item.objects.create(
+            org=test_org, warehouse=warehouse, name="Live pen", unit="pcs"
+        )
+        Item.objects.create(
+            org=test_org,
+            warehouse=warehouse,
+            name="Old tape",
+            unit="roll",
+            is_active=False,
+        )
+        names = [row["name"] for row in warehouse_client.get(ITEMS).json()["results"]]
+        assert names == ["Live pen"]
+        suspended = warehouse_client.get(ITEMS, {"status": "suspended"})
+        assert [row["name"] for row in suspended.json()["results"]] == ["Old tape"]
+        both = warehouse_client.get(ITEMS, {"status": "all"})
+        assert {row["name"] for row in both.json()["results"]} == {
+            "Live pen",
+            "Old tape",
+        }
+        bad = warehouse_client.get(ITEMS, {"status": "hidden"})
+        assert bad.status_code == 400
+        assert bad.json()["status"] == [
+            'Must be "active", "suspended", or "all".'
+        ]
+
+    def test_list_filters_category_and_search(
+        self, warehouse_client, test_org, warehouse
+    ):
+        stationery = ItemCategory.objects.create(org=test_org, name="Stationery")
+        other = ItemCategory.objects.create(org=test_org, name="Cleaning")
+        Item.objects.create(
+            org=test_org,
+            warehouse=warehouse,
+            category=stationery,
+            name="A4 paper",
+            unit="ream",
+            part_number="PAP-A4",
+        )
+        Item.objects.create(
+            org=test_org,
+            warehouse=warehouse,
+            category=other,
+            name="Bleach",
+            unit="btl",
+        )
+        Item.objects.create(
+            org=test_org,
+            warehouse=warehouse,
+            category=stationery,
+            name="Hidden A4",
+            unit="ream",
+            part_number="PAP-OLD",
+            is_active=False,
+        )
+        by_cat = warehouse_client.get(ITEMS, {"category": stationery.slug})
+        assert [row["name"] for row in by_cat.json()["results"]] == ["A4 paper"]
+        unknown = warehouse_client.get(ITEMS, {"category": "missing"})
+        assert unknown.status_code == 400
+        assert unknown.json()["category"] == ["Unknown category."]
+        found = warehouse_client.get(ITEMS, {"search": "pap-a4"})
+        assert [row["name"] for row in found.json()["results"]] == ["A4 paper"]
+        hidden = warehouse_client.get(ITEMS, {"search": "Hidden"})
+        assert hidden.json()["results"] == []
+        with_all = warehouse_client.get(ITEMS, {"search": "Hidden", "status": "all"})
+        assert [row["name"] for row in with_all.json()["results"]] == ["Hidden A4"]
 
 
 @pytest.mark.django_db
