@@ -57,6 +57,9 @@ class LineWriteSerializer(serializers.Serializer):
 class PurchaseRequestSerializer(serializers.ModelSerializer):
     space = serializers.SlugRelatedField(read_only=True, slug_field="slug")
     created_by = serializers.SlugRelatedField(read_only=True, slug_field="slug")
+    created_by_user_type = serializers.CharField(
+        source="created_by.user_type", read_only=True
+    )
     lines = PurchaseRequestLineSerializer(many=True, read_only=True)
 
     class Meta:
@@ -68,6 +71,7 @@ class PurchaseRequestSerializer(serializers.ModelSerializer):
             "notes",
             "space",
             "created_by",
+            "created_by_user_type",
             "review_reason",
             "lines",
             "created_at",
