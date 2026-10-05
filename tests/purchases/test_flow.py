@@ -109,6 +109,38 @@ class TestPurchaseRequestPermissions:
         slugs = [row["slug"] for row in listed.json()["results"]]
         assert "hidden" not in slugs
 
+    def test_list_includes_ops_creator_role(self, ops_client):
+        created = ops_client.post(
+            PR, {"title": "Ops role list", "lines": _lines()}, format="json"
+        )
+        assert created.status_code == 201
+        listed = ops_client.get(PR)
+        assert listed.status_code == 200
+        row = next(
+            item
+            for item in listed.json()["results"]
+            if item["slug"] == created.json()["slug"]
+        )
+        assert row["created_by"] == created.json()["created_by"]
+        assert row["created_by_user_type"] == "operation_incharge"
+
+    def test_list_includes_space_creator_role(
+        self, assigned_space_client, assigned_space_incharge
+    ):
+        created = assigned_space_client.post(
+            PR, {"title": "Space role list", "lines": _lines()}, format="json"
+        )
+        assert created.status_code == 201
+        listed = assigned_space_client.get(PR)
+        assert listed.status_code == 200
+        row = next(
+            item
+            for item in listed.json()["results"]
+            if item["slug"] == created.json()["slug"]
+        )
+        assert row["created_by"] == assigned_space_incharge.profile.slug
+        assert row["created_by_user_type"] == "space_incharge"
+
 
 @pytest.mark.django_db
 class TestSubmitAndApprove:

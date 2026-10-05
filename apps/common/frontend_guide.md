@@ -353,6 +353,7 @@ export type PurchaseRequest = {
   notes: string;
   space: string | null;
   created_by: string;
+  created_by_user_type: UserType;
   review_reason: string;
   lines: PurchaseRequestLine[];
   created_at: string;

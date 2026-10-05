@@ -1914,6 +1914,7 @@ may send `space` or omit/`null`. `item` on a line is optional.
   "notes": "",
   "space": "north-wing",
   "created_by": "op-lead",
+  "created_by_user_type": "operation_incharge",
   "review_reason": "",
   "lines": [
     {
