@@ -205,6 +205,27 @@ def create_purchase_request(
 
 
 @transaction.atomic
+def delete_purchase_request(*, pr: PurchaseRequest, actor: UserProfile) -> None:
+    """Soft-delete a draft or revision-requested purchase request."""
+    if pr.status not in (
+        PurchaseRequest.Status.DRAFT,
+        PurchaseRequest.Status.REVISION_REQUESTED,
+    ):
+        raise ValidationError({"detail": INVALID_STATUS})
+    pr.is_deleted = True
+    pr.save(update_fields=["is_deleted", "updated_at"])
+    record_process_event(
+        org=pr.org,
+        purchase_request=pr,
+        resource_type="purchase_request",
+        resource_slug=pr.slug,
+        action="delete",
+        actor=actor,
+        payload={"status": pr.status},
+    )
+
+
+@transaction.atomic
 def update_purchase_request(
     *,
     pr: PurchaseRequest,

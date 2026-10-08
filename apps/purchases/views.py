@@ -56,6 +56,7 @@ from apps.purchases.services import (
     complete_warehouse_receipt,
     create_purchase_order,
     decline_purchase_request,
+    delete_purchase_request,
     get_org_po,
     get_org_pr,
     get_org_receipt,
@@ -150,12 +151,23 @@ class PurchaseRequestListCreateView(generics.ListCreateAPIView):
 @extend_schema_view(
     get=extend_schema(tags=["Purchases"], parameters=[_SLUG], responses={200: PurchaseRequestSerializer, 404: _NOT_FOUND, **error_responses(401, 403)}),
     patch=extend_schema(tags=["Purchases"], parameters=[_SLUG], request=PurchaseRequestUpdateSerializer, responses={200: PurchaseRequestSerializer, 400: OpenApiResponse(DetailSerializer), 404: _NOT_FOUND, **error_responses(401, 403)}),
+    delete=extend_schema(
+        tags=["Purchases"],
+        parameters=[_SLUG],
+        request=EmptySerializer,
+        responses={
+            204: OpenApiResponse(description="Purchase request deleted."),
+            400: OpenApiResponse(DetailSerializer),
+            404: _NOT_FOUND,
+            **error_responses(401, 403),
+        },
+    ),
 )
 class PurchaseRequestDetailView(generics.RetrieveUpdateAPIView):
     permission_classes = [permissions.IsAuthenticated, IsPurchaseRequester]
     serializer_class = PurchaseRequestSerializer
     lookup_field = "slug"
-    http_method_names = ["get", "patch", "head", "options"]
+    http_method_names = ["get", "patch", "delete", "head", "options"]
 
     def get_queryset(self):
         return PurchaseRequestListCreateView.get_queryset(self)
@@ -178,6 +190,18 @@ class PurchaseRequestDetailView(generics.RetrieveUpdateAPIView):
         pr = serializer.save()
         pr = PurchaseRequest.objects.prefetch_related("lines").get(pk=pr.pk)
         return Response(PurchaseRequestSerializer(pr).data)
+
+    def delete(self, request, *args, **kwargs):
+        pr = self.get_object()
+        profile = request.user.profile
+        if profile.user_type == UserProfile.UserType.SPACE_INCHARGE:
+            if pr.created_by_id != profile.pk:
+                raise Http404()
+        try:
+            delete_purchase_request(pr=pr, actor=profile)
+        except DjangoValidationError as exc:
+            return _err(exc)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class _PRActionView(generics.GenericAPIView):

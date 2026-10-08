@@ -9,6 +9,13 @@ from django.db import models
 from apps.common.models import SlugMixin, UUIDModel
 
 
+class AlivePurchaseRequestManager(models.Manager):
+    """Omit soft-deleted purchase requests from public lookups."""
+
+    def get_queryset(self):
+        return super().get_queryset().filter(is_deleted=False)
+
+
 class PurchaseRequest(UUIDModel, SlugMixin):
     """A multi-line purchase request from a space or from operations."""
 
@@ -52,8 +59,12 @@ class PurchaseRequest(UUIDModel, SlugMixin):
         blank=True,
     )
     reviewed_at = models.DateTimeField(null=True, blank=True)
+    is_deleted = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    objects = AlivePurchaseRequestManager()
+    all_objects = models.Manager()
 
     class Meta:
         verbose_name = "Purchase request"
