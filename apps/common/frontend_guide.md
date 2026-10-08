@@ -990,6 +990,10 @@ export async function updatePurchaseRequest(slug: string, body: Partial<Purchase
   return data;
 }
 
+export async function deletePurchaseRequest(slug: string) {
+  await api.delete(`/api/orgs/purchase-requests/${slug}/`);
+}
+
 export async function submitPurchaseRequest(slug: string) {
   const { data } = await api.post<PurchaseRequest>(
     `/api/orgs/purchase-requests/${slug}/submit/`,

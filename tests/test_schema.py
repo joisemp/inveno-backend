@@ -198,6 +198,11 @@ def test_purchases_schema_documents_success_and_errors():
     pr_post = schema["paths"]["/api/orgs/purchase-requests/"]["post"]["responses"]
     for code in ("201", "400", "401", "403"):
         assert code in pr_post, f"PR POST missing response {code}"
+    pr_delete = schema["paths"]["/api/orgs/purchase-requests/{slug}/"]["delete"][
+        "responses"
+    ]
+    for code in ("204", "400", "401", "403", "404"):
+        assert code in pr_delete, f"PR DELETE missing response {code}"
     select = schema["paths"]["/api/orgs/rfqs/{slug}/select-lines/"]["post"]["responses"]
     for code in ("200", "400", "401", "403", "404"):
         assert code in select, f"select-lines missing response {code}"

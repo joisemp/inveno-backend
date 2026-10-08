@@ -117,7 +117,7 @@ def wipe_demo() -> None:
         QuoteRequestVendor.objects.filter(quote_request__org=org).delete()
         QuoteRequest.objects.filter(org=org).delete()
         PurchaseRequestLine.objects.filter(request__org=org).delete()
-        PurchaseRequest.objects.filter(org=org).delete()
+        PurchaseRequest.all_objects.filter(org=org).delete()
         ItemPhoto.objects.filter(item__org=org).delete()
         Item.objects.filter(org=org).delete()
         Warehouse.objects.filter(org=org).delete()

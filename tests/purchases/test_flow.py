@@ -143,6 +143,131 @@ class TestPurchaseRequestPermissions:
 
 
 @pytest.mark.django_db
+class TestDeletePurchaseRequest:
+    def test_space_incharge_deletes_own_draft(
+        self, assigned_space_client, assigned_space_incharge
+    ):
+        from apps.purchases.models import PurchaseRequest
+
+        created = assigned_space_client.post(
+            PR, {"title": "Scratch draft", "lines": _lines()}, format="json"
+        ).json()
+        slug = created["slug"]
+        deleted = assigned_space_client.delete(f"{PR}{slug}/")
+        assert deleted.status_code == 204
+        listed = assigned_space_client.get(PR)
+        slugs = [row["slug"] for row in listed.json()["results"]]
+        assert slug not in slugs
+        assert assigned_space_client.get(f"{PR}{slug}/").status_code == 404
+        assert (
+            assigned_space_client.patch(
+                f"{PR}{slug}/", {"notes": "nope"}, format="json"
+            ).status_code
+            == 404
+        )
+        assert (
+            assigned_space_client.post(f"{PR}{slug}/submit/", format="json").status_code
+            == 404
+        )
+        assert (
+            assigned_space_client.get(f"{PR}{slug}/export/?format=pdf").status_code
+            == 404
+        )
+        row = PurchaseRequest.all_objects.get(slug=slug)
+        assert row.is_deleted is True
+        assert row.created_by_id == assigned_space_incharge.profile.pk
+
+    def test_space_incharge_deletes_revision_requested(
+        self, assigned_space_client, ops_client
+    ):
+        created = assigned_space_client.post(
+            PR, {"title": "Revise then drop", "lines": _lines()}, format="json"
+        ).json()
+        assigned_space_client.post(f"{PR}{created['slug']}/submit/", format="json")
+        ops_client.post(
+            f"{PR}{created['slug']}/request-revision/",
+            {"reason": "Add quantities"},
+            format="json",
+        )
+        deleted = assigned_space_client.delete(f"{PR}{created['slug']}/")
+        assert deleted.status_code == 204
+        assert assigned_space_client.get(f"{PR}{created['slug']}/").status_code == 404
+
+    def test_ops_deletes_space_raised_draft(
+        self, assigned_space_client, ops_client
+    ):
+        created = assigned_space_client.post(
+            PR, {"title": "Ops can drop", "lines": _lines()}, format="json"
+        ).json()
+        deleted = ops_client.delete(f"{PR}{created['slug']}/")
+        assert deleted.status_code == 204
+        assert ops_client.get(f"{PR}{created['slug']}/").status_code == 404
+
+    def test_space_incharge_cannot_delete_others_pr(
+        self, assigned_space_client, space, test_org
+    ):
+        from django.contrib.auth import get_user_model
+        from rest_framework.test import APIClient
+        from rest_framework_simplejwt.tokens import RefreshToken
+
+        from apps.users.models import UserProfile
+
+        created = assigned_space_client.post(
+            PR, {"title": "Not yours", "lines": _lines()}, format="json"
+        ).json()
+        other = get_user_model().objects.create_user(
+            email="other-space@example.com",
+            password="StrongPass123!",
+        )
+        UserProfile.objects.create(
+            user=other,
+            user_type=UserProfile.UserType.SPACE_INCHARGE,
+            first_name="Other",
+            last_name="Incharge",
+            org=test_org,
+            space=space,
+        )
+        other_client = APIClient()
+        token = RefreshToken.for_user(other)
+        other_client.credentials(HTTP_AUTHORIZATION=f"Bearer {str(token.access_token)}")
+        assert other_client.delete(f"{PR}{created['slug']}/").status_code == 404
+        assert assigned_space_client.get(f"{PR}{created['slug']}/").status_code == 200
+
+    def test_submitted_cannot_be_deleted(
+        self, assigned_space_client, ops_client
+    ):
+        created = assigned_space_client.post(
+            PR, {"title": "Already sent", "lines": _lines()}, format="json"
+        ).json()
+        assigned_space_client.post(f"{PR}{created['slug']}/submit/", format="json")
+        response = ops_client.delete(f"{PR}{created['slug']}/")
+        assert response.status_code == 400
+        assert response.json()["detail"] == (
+            "This action is not allowed in the current status."
+        )
+        assert ops_client.get(f"{PR}{created['slug']}/").status_code == 200
+
+    def test_warehouse_cannot_delete(self, assigned_space_client, warehouse_client):
+        created = assigned_space_client.post(
+            PR, {"title": "Warehouse no", "lines": _lines()}, format="json"
+        ).json()
+        assert warehouse_client.delete(f"{PR}{created['slug']}/").status_code == 403
+
+    def test_anonymous_cannot_delete(self, assigned_space_client, api_client):
+        created = assigned_space_client.post(
+            PR, {"title": "Anon no", "lines": _lines()}, format="json"
+        ).json()
+        assert api_client.delete(f"{PR}{created['slug']}/").status_code == 401
+
+    def test_repeat_delete_is_not_found(self, assigned_space_client):
+        created = assigned_space_client.post(
+            PR, {"title": "Gone twice", "lines": _lines()}, format="json"
+        ).json()
+        assert assigned_space_client.delete(f"{PR}{created['slug']}/").status_code == 204
+        assert assigned_space_client.delete(f"{PR}{created['slug']}/").status_code == 404
+
+
+@pytest.mark.django_db
 class TestSubmitAndApprove:
     def test_ops_submit_auto_approves(self, ops_client):
         created = ops_client.post(

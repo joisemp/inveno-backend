@@ -1962,6 +1962,30 @@ PATCH may replace `title`, `notes`, and the full `lines` array while `draft` or
 
 ---
 
+### Delete Purchase Request
+
+| | |
+|---|---|
+| **Method / URL** | `DELETE /api/orgs/purchase-requests/{slug}/` |
+| **Auth** | Bearer — the creator, or operation incharge / central admin |
+
+Soft-deletes the request. Allowed only while `draft` or `revision_requested`.
+Space incharge may delete **their own** request only. Deleted requests are
+omitted from `GET /api/orgs/purchase-requests/` and return `404` on GET, PATCH,
+submit, approve, trail, and export. There is no undelete.
+
+**Success `204`:** empty body.
+
+**Error `400` — submitted / approved / declined:**
+```json
+{ "detail": "This action is not allowed in the current status." }
+```
+
+**Error `404`:** unknown slug, already deleted, or space incharge deleting
+someone else’s request.
+
+---
+
 ### Submit / Approve / Decline / Request Revision
 
 | | |
