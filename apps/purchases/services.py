@@ -60,6 +60,13 @@ ITEM_REQUIRED = "An existing item slug is required to add to stock."
 ITEM_WRONG_WAREHOUSE = "This item is not in the receipt warehouse."
 UNKNOWN_ACTION = "Action must be new_item or add_to_existing."
 PR_NOT_APPROVED = "The purchase request must be approved first."
+ACTIVE_RFQ_EXISTS = (
+    "This purchase request already has an active quote request. "
+    "Cancel it before creating another."
+)
+RFQ_HAS_AWARDS_OR_POS = (
+    "Cannot cancel a quote request after awards or purchase orders exist."
+)
 SUGGESTED_ITEM_LIMIT = 5
 
 
@@ -374,9 +381,14 @@ def create_rfq(
     purchase_request: str,
     vendor_slugs: list[str],
 ) -> QuoteRequest:
+    """Create an RFQ for an approved PR. Only one non-cancelled RFQ is allowed."""
     pr = get_org_pr(org=org, slug=purchase_request)
     if pr.status != PurchaseRequest.Status.APPROVED:
         raise ValidationError({"purchase_request": PR_NOT_APPROVED})
+    if QuoteRequest.objects.filter(purchase_request=pr).exclude(
+        status=QuoteRequest.Status.CANCELLED
+    ).exists():
+        raise ValidationError({"purchase_request": ACTIVE_RFQ_EXISTS})
     if not vendor_slugs:
         raise ValidationError({"vendor_slugs": NEED_VENDORS})
     vendors = list(Vendor.objects.filter(org=org, slug__in=vendor_slugs, is_active=True))
@@ -397,6 +409,43 @@ def create_rfq(
         action="create_rfq",
         actor=actor,
         payload={"vendors": vendor_slugs},
+    )
+    return rfq
+
+
+@transaction.atomic
+def cancel_rfq(*, rfq: QuoteRequest, actor: UserProfile) -> QuoteRequest:
+    """Cancel an RFQ that has not yet awarded lines or produced POs.
+
+    Allowed only in ``preparing`` or ``in_review``. After cancel, a new RFQ
+    may be created for the same purchase request.
+    """
+    if rfq.status not in (
+        QuoteRequest.Status.PREPARING,
+        QuoteRequest.Status.IN_REVIEW,
+    ):
+        raise ValidationError({"detail": INVALID_STATUS})
+    pr = rfq.purchase_request
+    has_awards = PurchaseRequestLineAward.objects.filter(
+        request_line__request=pr
+    ).exists()
+    has_pos = (
+        PurchaseOrder.objects.filter(purchase_request=pr)
+        .exclude(status=PurchaseOrder.Status.CANCELLED)
+        .exists()
+    )
+    if has_awards or has_pos:
+        raise ValidationError({"detail": RFQ_HAS_AWARDS_OR_POS})
+    rfq.status = QuoteRequest.Status.CANCELLED
+    rfq.save(update_fields=["status", "updated_at"])
+    record_process_event(
+        org=rfq.org,
+        purchase_request=pr,
+        resource_type="quote_request",
+        resource_slug=rfq.slug,
+        action="cancel_rfq",
+        actor=actor,
+        payload={"status": rfq.status},
     )
     return rfq
 

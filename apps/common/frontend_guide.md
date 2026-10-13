@@ -362,6 +362,8 @@ export type PurchaseRequest = {
   created_by: string;
   created_by_user_type: UserType;
   review_reason: string;
+  /** Newest non-cancelled RFQ slug, or null — use for “View quote” without listing RFQs */
+  active_rfq: string | null;
   lines: PurchaseRequestLine[];
   created_at: string;
   updated_at: string;
@@ -1084,6 +1086,15 @@ export async function recordQuote(
 
 export async function requestRfqRevision(rfqSlug: string, reason: string) {
   const { data } = await api.post(`/api/orgs/rfqs/${rfqSlug}/request-revision/`, { reason });
+  return data;
+}
+
+/**
+ * Cancel an RFQ before awards/POs so a new RFQ can be created for the same PR.
+ * Only one non-cancelled RFQ is allowed per purchase request.
+ */
+export async function cancelRfq(rfqSlug: string) {
+  const { data } = await api.post<QuoteRequest>(`/api/orgs/rfqs/${rfqSlug}/cancel/`);
   return data;
 }
 

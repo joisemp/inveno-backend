@@ -83,6 +83,7 @@ class PurchaseRequestSerializer(serializers.ModelSerializer):
     created_by_user_type = serializers.CharField(
         source="created_by.user_type", read_only=True
     )
+    active_rfq = serializers.SerializerMethodField()
     lines = PurchaseRequestLineSerializer(many=True, read_only=True)
 
     class Meta:
@@ -96,11 +97,26 @@ class PurchaseRequestSerializer(serializers.ModelSerializer):
             "created_by",
             "created_by_user_type",
             "review_reason",
+            "active_rfq",
             "lines",
             "created_at",
             "updated_at",
         )
         read_only_fields = fields
+
+    def get_active_rfq(self, obj):
+        """Slug of the newest non-cancelled RFQ, or null if none."""
+        from apps.purchases.models import QuoteRequest
+
+        if hasattr(obj, "active_quote_requests"):
+            rows = obj.active_quote_requests
+            return rows[0].slug if rows else None
+        rfq = (
+            obj.quote_requests.exclude(status=QuoteRequest.Status.CANCELLED)
+            .order_by("-created_at", "-id")
+            .first()
+        )
+        return rfq.slug if rfq else None
 
 
 class PurchaseRequestCreateSerializer(serializers.Serializer):
