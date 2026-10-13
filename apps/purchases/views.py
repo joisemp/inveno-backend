@@ -1,5 +1,6 @@
 """Purchase-flow API views."""
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db.models import Prefetch
 from django.http import Http404
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
@@ -27,6 +28,18 @@ from apps.purchases.models import (
     PurchaseRequest,
     QuoteRequest,
     WarehouseReceipt,
+)
+
+_PR_PREFETCH = (
+    "lines",
+    "lines__awards__vendor",
+    Prefetch(
+        "quote_requests",
+        queryset=QuoteRequest.objects.exclude(
+            status=QuoteRequest.Status.CANCELLED
+        ).order_by("-created_at", "-id"),
+        to_attr="active_quote_requests",
+    ),
 )
 from apps.purchases.serializers import (
     CreatePOSerializer,
@@ -119,7 +132,7 @@ class PurchaseRequestListCreateView(generics.ListCreateAPIView):
         qs = (
             PurchaseRequest.objects.filter(org=profile.org)
             .select_related("space", "created_by")
-            .prefetch_related("lines", "lines__awards__vendor")
+            .prefetch_related(*_PR_PREFETCH)
             .order_by("-created_at")
         )
         if profile.user_type == UserProfile.UserType.SPACE_INCHARGE:
@@ -143,7 +156,7 @@ class PurchaseRequestListCreateView(generics.ListCreateAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         pr = serializer.save()
-        pr = PurchaseRequest.objects.prefetch_related("lines", "lines__awards__vendor").get(pk=pr.pk)
+        pr = PurchaseRequest.objects.prefetch_related(*_PR_PREFETCH).get(pk=pr.pk)
         return Response(
             PurchaseRequestSerializer(pr).data, status=status.HTTP_201_CREATED
         )
@@ -189,7 +202,7 @@ class PurchaseRequestDetailView(generics.RetrieveUpdateAPIView):
         serializer = self.get_serializer(pr, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         pr = serializer.save()
-        pr = PurchaseRequest.objects.prefetch_related("lines", "lines__awards__vendor").get(pk=pr.pk)
+        pr = PurchaseRequest.objects.prefetch_related(*_PR_PREFETCH).get(pk=pr.pk)
         return Response(PurchaseRequestSerializer(pr).data)
 
     def delete(self, request, *args, **kwargs):

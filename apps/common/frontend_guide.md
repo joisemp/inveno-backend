@@ -362,6 +362,8 @@ export type PurchaseRequest = {
   created_by: string;
   created_by_user_type: UserType;
   review_reason: string;
+  /** Newest non-cancelled RFQ slug, or null — use for “View quote” without listing RFQs */
+  active_rfq: string | null;
   lines: PurchaseRequestLine[];
   created_at: string;
   updated_at: string;

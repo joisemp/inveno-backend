@@ -1916,6 +1916,7 @@ may send `space` or omit/`null`. `item` on a line is optional.
   "created_by": "op-lead",
   "created_by_user_type": "operation_incharge",
   "review_reason": "",
+  "active_rfq": null,
   "lines": [
     {
       "slug": "a4-paper",
@@ -1930,6 +1931,9 @@ may send `space` or omit/`null`. `item` on a line is optional.
   "updated_at": "2026-09-17T10:00:00Z"
 }
 ```
+
+`active_rfq` is the slug of the newest non-cancelled RFQ for this PR (`null` if none).
+Use it for a direct “View quote” link: `GET /api/orgs/rfqs/{active_rfq}/`.
 
 GET is paginated; list items use the same shape (nested `lines`).
 
@@ -1953,7 +1957,8 @@ GET is paginated; list items use the same shape (nested `lines`).
 | **Auth** | Bearer — same as list; space incharge scoped to their space |
 
 PATCH may replace `title`, `notes`, and the full `lines` array while `draft` or
-`revision_requested`.
+`revision_requested`. Response shape matches list/create, including
+`active_rfq` (nullable RFQ slug for direct navigation to quote comparison).
 
 **Error `400`:**
 ```json

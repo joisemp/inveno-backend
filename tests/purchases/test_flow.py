@@ -1224,3 +1224,65 @@ class TestOneActiveRfqAndCancel:
         newer.refresh_from_db()
         assert older.status == QuoteRequest.Status.CANCELLED
         assert newer.status == QuoteRequest.Status.IN_REVIEW
+
+
+@pytest.mark.django_db
+class TestActiveRfqField:
+    """PR JSON exposes active_rfq for direct navigation to quote comparison."""
+
+    def test_approved_without_rfq_is_null(self, ops_client):
+        created = _approved_pr(ops_client, "No RFQ yet")
+        detail = ops_client.get(f"{PR}{created['slug']}/")
+        assert detail.status_code == 200
+        assert detail.json()["active_rfq"] is None
+
+    def test_after_create_rfq(self, ops_client, vendor_a, vendor_b):
+        created = _approved_pr(ops_client, "Has RFQ")
+        rfq = ops_client.post(
+            RFQ,
+            {
+                "purchase_request": created["slug"],
+                "vendor_slugs": [vendor_a.slug, vendor_b.slug],
+            },
+            format="json",
+        ).json()
+        detail = ops_client.get(f"{PR}{created['slug']}/")
+        assert detail.json()["active_rfq"] == rfq["slug"]
+
+    def test_after_cancel_is_null(self, ops_client, vendor_a, vendor_b):
+        created = _approved_pr(ops_client, "Cancel clears")
+        rfq = ops_client.post(
+            RFQ,
+            {
+                "purchase_request": created["slug"],
+                "vendor_slugs": [vendor_a.slug, vendor_b.slug],
+            },
+            format="json",
+        ).json()
+        cancelled = ops_client.post(f"{RFQ}{rfq['slug']}/cancel/", format="json")
+        assert cancelled.status_code == 200
+        detail = ops_client.get(f"{PR}{created['slug']}/")
+        assert detail.json()["active_rfq"] is None
+
+    def test_after_cancel_and_recreate(self, ops_client, vendor_a, vendor_b):
+        created = _approved_pr(ops_client, "Recreate RFQ")
+        first = ops_client.post(
+            RFQ,
+            {
+                "purchase_request": created["slug"],
+                "vendor_slugs": [vendor_a.slug, vendor_b.slug],
+            },
+            format="json",
+        ).json()
+        ops_client.post(f"{RFQ}{first['slug']}/cancel/", format="json")
+        second = ops_client.post(
+            RFQ,
+            {
+                "purchase_request": created["slug"],
+                "vendor_slugs": [vendor_a.slug],
+            },
+            format="json",
+        ).json()
+        detail = ops_client.get(f"{PR}{created['slug']}/")
+        assert detail.json()["active_rfq"] == second["slug"]
+        assert detail.json()["active_rfq"] != first["slug"]
