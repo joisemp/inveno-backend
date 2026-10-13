@@ -1087,6 +1087,15 @@ export async function requestRfqRevision(rfqSlug: string, reason: string) {
   return data;
 }
 
+/**
+ * Cancel an RFQ before awards/POs so a new RFQ can be created for the same PR.
+ * Only one non-cancelled RFQ is allowed per purchase request.
+ */
+export async function cancelRfq(rfqSlug: string) {
+  const { data } = await api.post<QuoteRequest>(`/api/orgs/rfqs/${rfqSlug}/cancel/`);
+  return data;
+}
+
 export async function selectQuoteLines(
   rfqSlug: string,
   selections: { line: string; vendor: string; quantity?: number }[],

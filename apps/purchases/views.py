@@ -53,6 +53,7 @@ from apps.purchases.serializers import (
 from apps.purchases.services import (
     add_rfq_vendor,
     approve_purchase_request,
+    cancel_rfq,
     complete_warehouse_receipt,
     create_purchase_order,
     decline_purchase_request,
@@ -396,6 +397,50 @@ class RFQQuoteView(_RFQActionView):
 class RFQRevisionView(_RFQActionView):
     def post(self, request, *args, **kwargs):
         rfq = request_rfq_revision(rfq=self.get_object(), actor=request.user.profile)
+        return Response(QuoteRequestSerializer(rfq).data)
+
+
+@extend_schema(
+    tags=["Purchases"],
+    parameters=[_SLUG],
+    request=EmptySerializer,
+    responses={
+        200: QuoteRequestSerializer,
+        400: OpenApiResponse(
+            DetailSerializer,
+            examples=[
+                OpenApiExample(
+                    "Wrong status",
+                    value={"detail": "This action is not allowed in the current status."},
+                ),
+                OpenApiExample(
+                    "Awards or POs exist",
+                    value={
+                        "detail": (
+                            "Cannot cancel a quote request after awards "
+                            "or purchase orders exist."
+                        )
+                    },
+                ),
+            ],
+        ),
+        404: _NOT_FOUND,
+        **error_responses(401, 403),
+    },
+)
+class RFQCancelView(_RFQActionView):
+    """Cancel an RFQ before awards or POs so a fresh RFQ can be created."""
+
+    def post(self, request, *args, **kwargs):
+        try:
+            rfq = cancel_rfq(rfq=self.get_object(), actor=request.user.profile)
+        except DjangoValidationError as exc:
+            return _err(exc)
+        rfq = QuoteRequest.objects.prefetch_related(
+            "vendors__vendor",
+            "purchase_request__lines",
+            "purchase_request__lines__awards__vendor",
+        ).get(pk=rfq.pk)
         return Response(QuoteRequestSerializer(rfq).data)
 
 

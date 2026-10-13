@@ -55,6 +55,7 @@ EXPECTED_PATHS = [
     "/api/orgs/rfqs/{slug}/vendors/{vendor_slug}/reject/",
     "/api/orgs/rfqs/{slug}/quotes/",
     "/api/orgs/rfqs/{slug}/request-revision/",
+    "/api/orgs/rfqs/{slug}/cancel/",
     "/api/orgs/rfqs/{slug}/select-lines/",
     "/api/orgs/rfqs/{slug}/purchase-orders/",
     "/api/orgs/rfqs/{slug}/export/",
@@ -203,6 +204,9 @@ def test_purchases_schema_documents_success_and_errors():
     ]
     for code in ("204", "400", "401", "403", "404"):
         assert code in pr_delete, f"PR DELETE missing response {code}"
+    cancel = schema["paths"]["/api/orgs/rfqs/{slug}/cancel/"]["post"]["responses"]
+    for code in ("200", "400", "401", "403", "404"):
+        assert code in cancel, f"RFQ cancel missing response {code}"
     select = schema["paths"]["/api/orgs/rfqs/{slug}/select-lines/"]["post"]["responses"]
     for code in ("200", "400", "401", "403", "404"):
         assert code in select, f"select-lines missing response {code}"

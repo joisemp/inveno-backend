@@ -1085,3 +1085,142 @@ class TestPartialAward:
         # Each PO covers only its own line with the full line quantity
         assert str(po_a.json()["lines"][0]["quantity"]) == "10.000"
         assert str(po_b.json()["lines"][0]["quantity"]) == "50.000"
+
+
+def _approved_pr(ops_client, title="One RFQ PR"):
+    created = ops_client.post(
+        PR, {"title": title, "lines": _lines()}, format="json"
+    ).json()
+    ops_client.post(f"{PR}{created['slug']}/submit/", format="json")
+    return created
+
+
+@pytest.mark.django_db
+class TestOneActiveRfqAndCancel:
+    """One non-cancelled RFQ per PR; cancel before awards allows a restart."""
+
+    def test_second_rfq_blocked(self, ops_client, vendor_a, vendor_b):
+        created = _approved_pr(ops_client, "Block second")
+        first = ops_client.post(
+            RFQ,
+            {
+                "purchase_request": created["slug"],
+                "vendor_slugs": [vendor_a.slug, vendor_b.slug],
+            },
+            format="json",
+        )
+        assert first.status_code == 201
+        second = ops_client.post(
+            RFQ,
+            {
+                "purchase_request": created["slug"],
+                "vendor_slugs": [vendor_a.slug],
+            },
+            format="json",
+        )
+        assert second.status_code == 400
+        assert "purchase_request" in second.json()
+
+    def test_cancel_preparing_then_recreate(self, ops_client, vendor_a, vendor_b):
+        created = _approved_pr(ops_client, "Cancel prepare")
+        rfq = ops_client.post(
+            RFQ,
+            {
+                "purchase_request": created["slug"],
+                "vendor_slugs": [vendor_a.slug, vendor_b.slug],
+            },
+            format="json",
+        ).json()
+        cancelled = ops_client.post(f"{RFQ}{rfq['slug']}/cancel/", format="json")
+        assert cancelled.status_code == 200
+        assert cancelled.json()["status"] == "cancelled"
+        again = ops_client.post(
+            RFQ,
+            {
+                "purchase_request": created["slug"],
+                "vendor_slugs": [vendor_a.slug],
+            },
+            format="json",
+        )
+        assert again.status_code == 201
+
+    def test_cancel_in_review(self, ops_client, vendor_a, vendor_b):
+        _created, rfq, _line_slugs = _submit_quoted_rfq(ops_client, vendor_a, vendor_b)
+        detail = ops_client.get(f"{RFQ}{rfq['slug']}/").json()
+        assert detail["status"] == "in_review"
+        cancelled = ops_client.post(f"{RFQ}{rfq['slug']}/cancel/", format="json")
+        assert cancelled.status_code == 200
+        assert cancelled.json()["status"] == "cancelled"
+
+    def test_cancel_after_award_rejected(self, ops_client, vendor_a, vendor_b):
+        _created, rfq, line_slugs = _submit_quoted_rfq(ops_client, vendor_a, vendor_b)
+        ops_client.post(
+            f"{RFQ}{rfq['slug']}/select-lines/",
+            {"selections": [{"line": line_slugs[0], "vendor": vendor_a.slug}]},
+            format="json",
+        )
+        cancelled = ops_client.post(f"{RFQ}{rfq['slug']}/cancel/", format="json")
+        assert cancelled.status_code == 400
+
+    def test_cancel_when_po_exists_rejected(
+        self, ops_client, vendor_a, vendor_b, test_org
+    ):
+        from apps.purchases.models import PurchaseOrder, QuoteRequest
+
+        _created, rfq, line_slugs = _submit_quoted_rfq(ops_client, vendor_a, vendor_b)
+        # Force RFQ back to in_review while a PO exists on the PR
+        PurchaseOrder.objects.create(
+            org=test_org,
+            purchase_request_id=QuoteRequest.objects.get(slug=rfq["slug"]).purchase_request_id,
+            vendor=vendor_a,
+            status=PurchaseOrder.Status.ISSUED,
+        )
+        QuoteRequest.objects.filter(slug=rfq["slug"]).update(
+            status=QuoteRequest.Status.IN_REVIEW
+        )
+        cancelled = ops_client.post(f"{RFQ}{rfq['slug']}/cancel/", format="json")
+        assert cancelled.status_code == 400
+        assert "awards or purchase orders" in cancelled.json()["detail"]
+
+    def test_cancel_awarding_rejected(self, ops_client, vendor_a, vendor_b):
+        _created, rfq, line_slugs = _submit_quoted_rfq(ops_client, vendor_a, vendor_b)
+        ops_client.post(
+            f"{RFQ}{rfq['slug']}/select-lines/",
+            {"selections": [{"line": line_slugs[0], "vendor": vendor_a.slug}]},
+            format="json",
+        )
+        detail = ops_client.get(f"{RFQ}{rfq['slug']}/").json()
+        assert detail["status"] == "awarding"
+        cancelled = ops_client.post(f"{RFQ}{rfq['slug']}/cancel/", format="json")
+        assert cancelled.status_code == 400
+
+    def test_migration_cancels_older_parallel_rfqs(
+        self, ops_client, vendor_a, vendor_b, test_org
+    ):
+        import importlib
+
+        from django.apps import apps as django_apps
+
+        from apps.purchases.models import PurchaseRequest, QuoteRequest
+
+        migration = importlib.import_module(
+            "apps.purchases.migrations.0005_cancel_parallel_rfqs"
+        )
+
+        created = _approved_pr(ops_client, "Parallel cleanup")
+        pr = PurchaseRequest.objects.get(slug=created["slug"])
+        older = QuoteRequest.objects.create(
+            org=test_org,
+            purchase_request=pr,
+            status=QuoteRequest.Status.PREPARING,
+        )
+        newer = QuoteRequest.objects.create(
+            org=test_org,
+            purchase_request=pr,
+            status=QuoteRequest.Status.IN_REVIEW,
+        )
+        migration.cancel_older_parallel_rfqs(django_apps, None)
+        older.refresh_from_db()
+        newer.refresh_from_db()
+        assert older.status == QuoteRequest.Status.CANCELLED
+        assert newer.status == QuoteRequest.Status.IN_REVIEW

@@ -2068,6 +2068,18 @@ POST from an **approved** PR. No emails are sent.
 { "purchase_request": ["The purchase request must be approved first."] }
 ```
 
+**Error `400` — active RFQ already exists:**
+```json
+{
+  "purchase_request": [
+    "This purchase request already has an active quote request. Cancel it before creating another."
+  ]
+}
+```
+
+Only **one non-cancelled** RFQ is allowed per purchase request. To start a fresh round,
+cancel the current RFQ (before awards/POs), then create again.
+
 Further RFQ actions (all ops/central admin):
 
 | Method | URL | Body |
@@ -2076,9 +2088,28 @@ Further RFQ actions (all ops/central admin):
 | POST | `/api/orgs/rfqs/{slug}/vendors/{vendor_slug}/reject/` | `{ "reason": "..." }` |
 | POST | `/api/orgs/rfqs/{slug}/quotes/` | `{ "vendor": "<slug>", "lines": [{ "line": "<pr-line-slug>", "unit_price": "12.50" }] }` |
 | POST | `/api/orgs/rfqs/{slug}/request-revision/` | empty — RFQ back to `preparing` |
+| POST | `/api/orgs/rfqs/{slug}/cancel/` | empty — status `cancelled` (only before awards/POs) |
 | POST | `/api/orgs/rfqs/{slug}/select-lines/` | `{ "selections": [{ "line": "<slug>", "vendor": "<slug>", "quantity": 7 }] }` |
 | POST | `/api/orgs/rfqs/{slug}/purchase-orders/` | `{ "vendor": "<slug>", "create_purchase_order": true }` |
 | GET | `/api/orgs/rfqs/{slug}/export/?format=pdf\|xlsx` | quote comparison |
+
+#### Cancel RFQ
+
+`POST /api/orgs/rfqs/{slug}/cancel/` — empty body. Allowed only while status is
+`preparing` or `in_review`, and the parent PR has **no** line awards and **no**
+non-cancelled purchase orders.
+
+**Success `200`:** RFQ with `"status": "cancelled"`.
+
+**Error `400` — wrong status (e.g. awarding):**
+```json
+{ "detail": "This action is not allowed in the current status." }
+```
+
+**Error `400` — awards or POs already exist:**
+```json
+{ "detail": "Cannot cancel a quote request after awards or purchase orders exist." }
+```
 
 #### Partial quantity awards (`select-lines`)
 

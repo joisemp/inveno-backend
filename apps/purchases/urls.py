@@ -18,6 +18,7 @@ from apps.purchases.views import (
     PurchaseRequestSubmitView,
     PurchaseRequestTrailView,
     RFQAddVendorView,
+    RFQCancelView,
     RFQCreatePOView,
     RFQDetailView,
     RFQExportView,
@@ -88,6 +89,11 @@ urlpatterns = [
         "rfqs/<slug:slug>/request-revision/",
         RFQRevisionView.as_view(),
         name="rfq-revision",
+    ),
+    path(
+        "rfqs/<slug:slug>/cancel/",
+        RFQCancelView.as_view(),
+        name="rfq-cancel",
     ),
     path(
         "rfqs/<slug:slug>/select-lines/",
