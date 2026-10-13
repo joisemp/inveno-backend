@@ -310,6 +310,47 @@ class PurchaseOrderLine(UUIDModel, SlugMixin):
         return f"{self.purchase_order.slug}-{self.request_line.slug}"
 
 
+class PurchaseRequestLineAward(UUIDModel, SlugMixin):
+    """Partial or full quantity allocation from one PR line to one vendor.
+
+    One row per (request_line, vendor) pair.  Rows with ``po_line=None`` are
+    awaiting a purchase order; once a PO is created the row is linked so a
+    second PO call can pick up any remaining unplaced awards.
+    """
+
+    request_line = models.ForeignKey(
+        PurchaseRequestLine,
+        on_delete=models.CASCADE,
+        related_name="awards",
+    )
+    vendor = models.ForeignKey(
+        "vendors.Vendor",
+        on_delete=models.PROTECT,
+        related_name="line_awards",
+    )
+    quantity = models.DecimalField(max_digits=12, decimal_places=3)
+    po_line = models.OneToOneField(
+        PurchaseOrderLine,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="award",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Purchase request line award"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["request_line", "vendor"],
+                name="purchases_prlineaward_line_vendor_uniq",
+            ),
+        ]
+
+    def get_slug_source(self) -> str:
+        return f"{self.request_line.slug} {self.vendor.slug}"
+
+
 class QualityCheck(UUIDModel, SlugMixin):
     """Delivery QC against one PO / vendor."""
 

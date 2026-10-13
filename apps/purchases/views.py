@@ -118,7 +118,7 @@ class PurchaseRequestListCreateView(generics.ListCreateAPIView):
         qs = (
             PurchaseRequest.objects.filter(org=profile.org)
             .select_related("space", "created_by")
-            .prefetch_related("lines")
+            .prefetch_related("lines", "lines__awards__vendor")
             .order_by("-created_at")
         )
         if profile.user_type == UserProfile.UserType.SPACE_INCHARGE:
@@ -142,7 +142,7 @@ class PurchaseRequestListCreateView(generics.ListCreateAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         pr = serializer.save()
-        pr = PurchaseRequest.objects.prefetch_related("lines").get(pk=pr.pk)
+        pr = PurchaseRequest.objects.prefetch_related("lines", "lines__awards__vendor").get(pk=pr.pk)
         return Response(
             PurchaseRequestSerializer(pr).data, status=status.HTTP_201_CREATED
         )
@@ -188,7 +188,7 @@ class PurchaseRequestDetailView(generics.RetrieveUpdateAPIView):
         serializer = self.get_serializer(pr, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         pr = serializer.save()
-        pr = PurchaseRequest.objects.prefetch_related("lines").get(pk=pr.pk)
+        pr = PurchaseRequest.objects.prefetch_related("lines", "lines__awards__vendor").get(pk=pr.pk)
         return Response(PurchaseRequestSerializer(pr).data)
 
     def delete(self, request, *args, **kwargs):
@@ -291,7 +291,7 @@ class RFQListCreateView(generics.ListCreateAPIView):
         return (
             QuoteRequest.objects.filter(org=self.request.user.profile.org)
             .select_related("purchase_request")
-            .prefetch_related("vendors__vendor", "purchase_request__lines")
+            .prefetch_related("vendors__vendor", "purchase_request__lines", "purchase_request__lines__awards__vendor")
             .order_by("-created_at")
         )
 
@@ -345,7 +345,7 @@ class RFQAddVendorView(_RFQActionView):
             add_rfq_vendor(rfq=rfq, actor=request.user.profile, vendor_slug=ser.validated_data["vendor"])
         except DjangoValidationError as exc:
             return _err(exc)
-        rfq = QuoteRequest.objects.prefetch_related("vendors__vendor", "purchase_request__lines").get(pk=rfq.pk)
+        rfq = QuoteRequest.objects.prefetch_related("vendors__vendor", "purchase_request__lines", "purchase_request__lines__awards__vendor").get(pk=rfq.pk)
         return Response(QuoteRequestSerializer(rfq).data)
 
 
@@ -366,7 +366,7 @@ class RFQRejectVendorView(_RFQActionView):
             )
         except DjangoValidationError as exc:
             return _err(exc)
-        rfq = QuoteRequest.objects.prefetch_related("vendors__vendor", "purchase_request__lines").get(pk=rfq.pk)
+        rfq = QuoteRequest.objects.prefetch_related("vendors__vendor", "purchase_request__lines", "purchase_request__lines__awards__vendor").get(pk=rfq.pk)
         return Response(QuoteRequestSerializer(rfq).data)
 
 
@@ -388,7 +388,7 @@ class RFQQuoteView(_RFQActionView):
             )
         except DjangoValidationError as exc:
             return _err(exc)
-        rfq = QuoteRequest.objects.prefetch_related("vendors__vendor", "purchase_request__lines").get(pk=rfq.pk)
+        rfq = QuoteRequest.objects.prefetch_related("vendors__vendor", "purchase_request__lines", "purchase_request__lines__awards__vendor").get(pk=rfq.pk)
         return Response(QuoteRequestSerializer(rfq).data)
 
 
@@ -411,7 +411,7 @@ class RFQSelectLinesView(_RFQActionView):
             select_lines(rfq=rfq, actor=request.user.profile, selections=ser.validated_data["selections"])
         except DjangoValidationError as exc:
             return _err(exc)
-        rfq = QuoteRequest.objects.prefetch_related("vendors__vendor", "purchase_request__lines").get(pk=rfq.pk)
+        rfq = QuoteRequest.objects.prefetch_related("vendors__vendor", "purchase_request__lines", "purchase_request__lines__awards__vendor").get(pk=rfq.pk)
         return Response(QuoteRequestSerializer(rfq).data)
 
 
@@ -757,3 +757,4 @@ PurchaseRequestListCreateView = extend_schema_view(
         responses={201: PurchaseRequestSerializer, 400: OpenApiResponse(DetailSerializer), **error_responses(401, 403)},
     ),
 )(PurchaseRequestListCreateView)
+

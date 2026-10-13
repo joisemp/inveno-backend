@@ -2076,18 +2076,58 @@ Further RFQ actions (all ops/central admin):
 | POST | `/api/orgs/rfqs/{slug}/vendors/{vendor_slug}/reject/` | `{ "reason": "..." }` |
 | POST | `/api/orgs/rfqs/{slug}/quotes/` | `{ "vendor": "<slug>", "lines": [{ "line": "<pr-line-slug>", "unit_price": "12.50" }] }` |
 | POST | `/api/orgs/rfqs/{slug}/request-revision/` | empty — RFQ back to `preparing` |
-| POST | `/api/orgs/rfqs/{slug}/select-lines/` | `{ "selections": [{ "line": "<slug>", "vendor": "<slug>" }] }` |
+| POST | `/api/orgs/rfqs/{slug}/select-lines/` | `{ "selections": [{ "line": "<slug>", "vendor": "<slug>", "quantity": 7 }] }` |
 | POST | `/api/orgs/rfqs/{slug}/purchase-orders/` | `{ "vendor": "<slug>", "create_purchase_order": true }` |
 | GET | `/api/orgs/rfqs/{slug}/export/?format=pdf\|xlsx` | quote comparison |
+
+#### Partial quantity awards (`select-lines`)
+
+`quantity` is optional. Omit it to award the **entire remaining** unawarded quantity to the chosen vendor. Supply a numeric `quantity` to award only part of the line:
+
+```json
+{ "selections": [{ "line": "a4-paper-abc", "vendor": "acme-supplies", "quantity": 7 }] }
+```
+
+Then award the remaining 3 to a second vendor in a later call:
+
+```json
+{ "selections": [{ "line": "a4-paper-abc", "vendor": "office-mart", "quantity": 3 }] }
+```
+
+Each vendor then gets their own PO. Every line in the response now includes `awards[]` and `quantity_remaining`:
+
+```json
+{
+  "slug": "a4-paper-abc",
+  "quantity": 10,
+  "unit": "ream",
+  "awarded_vendor": null,
+  "awards": [
+    { "vendor": "acme-supplies", "quantity": 7 },
+    { "vendor": "office-mart",   "quantity": 3 }
+  ],
+  "quantity_remaining": 0,
+  "quotes": [...]
+}
+```
+
+`awarded_vendor` is set only when a single vendor covers the **entire** line quantity. For split lines it is `null`.
+
+PR lines (`GET /api/orgs/purchase-requests/{slug}/`) also include `awards[]` and `quantity_remaining`.
 
 **Error `400` — select a vendor with no quote on that line:**
 ```json
 { "vendor": ["This vendor has no recorded quote for that line."] }
 ```
 
-**Error `400` — line already awarded:**
+**Error `400` — line already fully awarded:**
 ```json
 { "line": ["This line is already awarded."] }
+```
+
+**Error `400` — quantity exceeds remaining:**
+```json
+{ "quantity": ["Award quantity exceeds the remaining unawarded quantity (3.000)."] }
 ```
 
 `create_purchase_order: false` still creates a PO row with `"is_new_order": false`

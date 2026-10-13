@@ -1,4 +1,6 @@
 """Public serializers for the purchase flow. Slugs only, never UUID."""
+from decimal import Decimal
+
 from rest_framework import serializers
 
 from apps.purchases.models import (
@@ -30,9 +32,18 @@ def _raise(exc: DjangoValidationError):
     raise serializers.ValidationError(exc.messages) from exc
 
 
+class LineAwardSerializer(serializers.Serializer):
+    """Compact vendor + quantity for a single award row on a request line."""
+
+    vendor = serializers.CharField()
+    quantity = serializers.DecimalField(max_digits=12, decimal_places=3)
+
+
 class PurchaseRequestLineSerializer(serializers.ModelSerializer):
     item = serializers.SlugRelatedField(read_only=True, slug_field="slug")
     awarded_vendor = serializers.SlugRelatedField(read_only=True, slug_field="slug")
+    awards = serializers.SerializerMethodField()
+    quantity_remaining = serializers.SerializerMethodField()
 
     class Meta:
         model = PurchaseRequestLine
@@ -43,8 +54,20 @@ class PurchaseRequestLineSerializer(serializers.ModelSerializer):
             "unit",
             "item",
             "awarded_vendor",
+            "awards",
+            "quantity_remaining",
         )
         read_only_fields = fields
+
+    def get_awards(self, obj):
+        return [
+            {"vendor": a.vendor.slug, "quantity": str(a.quantity)}
+            for a in obj.awards.select_related("vendor").all()
+        ]
+
+    def get_quantity_remaining(self, obj):
+        total = sum(a.quantity for a in obj.awards.all())
+        return str(obj.quantity - total)
 
 
 class LineWriteSerializer(serializers.Serializer):
@@ -134,6 +157,8 @@ class RFQLineSerializer(serializers.Serializer):
     quantity = serializers.DecimalField(max_digits=12, decimal_places=3)
     unit = serializers.CharField()
     awarded_vendor = serializers.CharField(allow_null=True)
+    awards = LineAwardSerializer(many=True)
+    quantity_remaining = serializers.DecimalField(max_digits=12, decimal_places=3)
     quotes = QuoteLineSerializer(many=True)
 
 
@@ -171,6 +196,8 @@ class QuoteRequestSerializer(serializers.ModelSerializer):
             quotes = VendorQuoteLine.objects.filter(request_line=line).select_related(
                 "quote__quote_request_vendor__vendor"
             )
+            awards_qs = list(line.awards.select_related("vendor").all())
+            total_awarded = sum(a.quantity for a in awards_qs)
             result.append(
                 {
                     "slug": line.slug,
@@ -180,6 +207,11 @@ class QuoteRequestSerializer(serializers.ModelSerializer):
                     "awarded_vendor": (
                         line.awarded_vendor.slug if line.awarded_vendor_id else None
                     ),
+                    "awards": [
+                        {"vendor": a.vendor.slug, "quantity": a.quantity}
+                        for a in awards_qs
+                    ],
+                    "quantity_remaining": line.quantity - total_awarded,
                     "quotes": [
                         {
                             "vendor": q.quote.quote_request_vendor.vendor.slug,
@@ -224,6 +256,13 @@ class QuoteWriteSerializer(serializers.Serializer):
 class SelectionSerializer(serializers.Serializer):
     line = serializers.SlugField()
     vendor = serializers.SlugField()
+    quantity = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=3,
+        required=False,
+        allow_null=True,
+        min_value=Decimal("0.001"),
+    )
 
 
 class SelectLinesSerializer(serializers.Serializer):

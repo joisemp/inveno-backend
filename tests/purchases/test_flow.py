@@ -914,3 +914,174 @@ class TestReceiptSuggestions:
         assert receipt["warehouse"] is None
         assert receipt["lines"][0]["suggested_items"] == []
         assert receipt["lines"][0]["source_item"] is None
+
+
+# ---------------------------------------------------------------------------
+# Helper: quoted RFQ with a single-line PR (10 reams) for two vendors
+# ---------------------------------------------------------------------------
+
+def _single_line_quoted_rfq(ops_client, vendor_a, vendor_b):
+    """Approved PR with one line (qty 10) and quotes from both vendors."""
+    created = ops_client.post(
+        PR,
+        {"title": "Split test", "lines": [{"description": "Paper", "quantity": "10", "unit": "ream"}]},
+        format="json",
+    ).json()
+    ops_client.post(f"{PR}{created['slug']}/submit/", format="json")
+    rfq = ops_client.post(
+        RFQ,
+        {"purchase_request": created["slug"], "vendor_slugs": [vendor_a.slug, vendor_b.slug]},
+        format="json",
+    ).json()
+    line_slug = rfq["lines"][0]["slug"]
+    for vendor in (vendor_a, vendor_b):
+        ops_client.post(
+            f"{RFQ}{rfq['slug']}/quotes/",
+            {"vendor": vendor.slug, "lines": [{"line": line_slug, "unit_price": "5.00"}]},
+            format="json",
+        )
+    return created, rfq, line_slug
+
+
+@pytest.mark.django_db
+class TestPartialAward:
+    """Partial quantity awards — 7 to Vendor A, remaining 3 to Vendor B."""
+
+    def test_split_7_and_3_creates_two_pos(self, ops_client, vendor_a, vendor_b):
+        """Award 7 to vendor A and 3 to vendor B, each gets their own PO."""
+        _created, rfq, line_slug = _single_line_quoted_rfq(ops_client, vendor_a, vendor_b)
+        rfq_slug = rfq["slug"]
+
+        # Award 7 units to vendor A
+        sel_a = ops_client.post(
+            f"{RFQ}{rfq_slug}/select-lines/",
+            {"selections": [{"line": line_slug, "vendor": vendor_a.slug, "quantity": "7"}]},
+            format="json",
+        )
+        assert sel_a.status_code == 200
+        line_data = next(r for r in sel_a.json()["lines"] if r["slug"] == line_slug)
+        assert line_data["quantity_remaining"] == 3  # Decimal/float compare
+        assert len(line_data["awards"]) == 1
+        assert line_data["awards"][0]["vendor"] == vendor_a.slug
+
+        # Award remaining 3 units to vendor B
+        sel_b = ops_client.post(
+            f"{RFQ}{rfq_slug}/select-lines/",
+            {"selections": [{"line": line_slug, "vendor": vendor_b.slug, "quantity": "3"}]},
+            format="json",
+        )
+        assert sel_b.status_code == 200
+        line_data2 = next(r for r in sel_b.json()["lines"] if r["slug"] == line_slug)
+        assert line_data2["quantity_remaining"] == 0
+        assert len(line_data2["awards"]) == 2
+
+        # Create PO for vendor A → qty 7
+        po_a = ops_client.post(
+            f"{RFQ}{rfq_slug}/purchase-orders/",
+            {"vendor": vendor_a.slug, "create_purchase_order": True},
+            format="json",
+        )
+        assert po_a.status_code == 201
+        assert len(po_a.json()["lines"]) == 1
+        assert str(po_a.json()["lines"][0]["quantity"]) == "7.000"
+
+        # Create PO for vendor B → qty 3
+        po_b = ops_client.post(
+            f"{RFQ}{rfq_slug}/purchase-orders/",
+            {"vendor": vendor_b.slug, "create_purchase_order": True},
+            format="json",
+        )
+        assert po_b.status_code == 201
+        assert len(po_b.json()["lines"]) == 1
+        assert str(po_b.json()["lines"][0]["quantity"]) == "3.000"
+
+    def test_omit_quantity_awards_all_remaining(self, ops_client, vendor_a, vendor_b):
+        """Omitting quantity awards the entire remaining amount."""
+        _created, rfq, line_slug = _single_line_quoted_rfq(ops_client, vendor_a, vendor_b)
+        rfq_slug = rfq["slug"]
+
+        # Award 4 to A first, then omit quantity for B → should take remaining 6
+        ops_client.post(
+            f"{RFQ}{rfq_slug}/select-lines/",
+            {"selections": [{"line": line_slug, "vendor": vendor_a.slug, "quantity": "4"}]},
+            format="json",
+        )
+        sel_b = ops_client.post(
+            f"{RFQ}{rfq_slug}/select-lines/",
+            {"selections": [{"line": line_slug, "vendor": vendor_b.slug}]},
+            format="json",
+        )
+        assert sel_b.status_code == 200
+        line_data = next(r for r in sel_b.json()["lines"] if r["slug"] == line_slug)
+        assert line_data["quantity_remaining"] == 0
+        award_for_b = next(a for a in line_data["awards"] if a["vendor"] == vendor_b.slug)
+        assert award_for_b["quantity"] == 6  # Decimal/float compare
+
+    def test_over_award_rejected(self, ops_client, vendor_a, vendor_b):
+        """Awarding more than remaining quantity returns 400."""
+        _created, rfq, line_slug = _single_line_quoted_rfq(ops_client, vendor_a, vendor_b)
+        rfq_slug = rfq["slug"]
+
+        # Award 7 to A, then try to award 5 more to B (only 3 remain)
+        ops_client.post(
+            f"{RFQ}{rfq_slug}/select-lines/",
+            {"selections": [{"line": line_slug, "vendor": vendor_a.slug, "quantity": "7"}]},
+            format="json",
+        )
+        over = ops_client.post(
+            f"{RFQ}{rfq_slug}/select-lines/",
+            {"selections": [{"line": line_slug, "vendor": vendor_b.slug, "quantity": "5"}]},
+            format="json",
+        )
+        assert over.status_code == 400
+
+    def test_fully_awarded_line_rejected(self, ops_client, vendor_a, vendor_b):
+        """Selecting a fully-awarded line returns 400."""
+        _created, rfq, line_slug = _single_line_quoted_rfq(ops_client, vendor_a, vendor_b)
+        rfq_slug = rfq["slug"]
+
+        # Award all 10 to A
+        ops_client.post(
+            f"{RFQ}{rfq_slug}/select-lines/",
+            {"selections": [{"line": line_slug, "vendor": vendor_a.slug}]},
+            format="json",
+        )
+        # Try to award any amount to B
+        second = ops_client.post(
+            f"{RFQ}{rfq_slug}/select-lines/",
+            {"selections": [{"line": line_slug, "vendor": vendor_b.slug, "quantity": "3"}]},
+            format="json",
+        )
+        assert second.status_code == 400
+
+    def test_existing_two_vendor_flow_unaffected(self, ops_client, warehouse_client, vendor_a, vendor_b, test_org):
+        """Backward-compatibility: two-line, two-vendor, two-PO flow still works."""
+        created, rfq, line_slugs = _submit_quoted_rfq(ops_client, vendor_a, vendor_b)
+        rfq_slug = rfq["slug"]
+
+        # One line per vendor (no quantity specified → full remaining)
+        selected = ops_client.post(
+            f"{RFQ}{rfq_slug}/select-lines/",
+            {"selections": [
+                {"line": line_slugs[0], "vendor": vendor_a.slug},
+                {"line": line_slugs[1], "vendor": vendor_b.slug},
+            ]},
+            format="json",
+        )
+        assert selected.status_code == 200
+
+        po_a = ops_client.post(
+            f"{RFQ}{rfq_slug}/purchase-orders/",
+            {"vendor": vendor_a.slug, "create_purchase_order": True},
+            format="json",
+        )
+        po_b = ops_client.post(
+            f"{RFQ}{rfq_slug}/purchase-orders/",
+            {"vendor": vendor_b.slug, "create_purchase_order": True},
+            format="json",
+        )
+        assert po_a.status_code == 201
+        assert po_b.status_code == 201
+        # Each PO covers only its own line with the full line quantity
+        assert str(po_a.json()["lines"][0]["quantity"]) == "10.000"
+        assert str(po_b.json()["lines"][0]["quantity"]) == "50.000"

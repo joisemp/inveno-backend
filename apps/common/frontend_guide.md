@@ -337,13 +337,20 @@ export type ItemActivity = {
   payload?: Record<string, unknown>;
 };
 
+export type LineAward = {
+  vendor: string;
+  quantity: number; // raw number from JSON, e.g. 7
+};
+
 export type PurchaseRequestLine = {
   slug: string;
   description: string;
   quantity: string;
   unit: string;
   item: string | null;
-  awarded_vendor: string | null;
+  awarded_vendor: string | null; // set only when one vendor covers the full qty
+  awards: LineAward[];           // one entry per vendor who has been allocated qty
+  quantity_remaining: number;    // 0 when fully awarded
 };
 
 export type PurchaseRequest = {
@@ -383,7 +390,9 @@ export type RFQLine = {
   description: string;
   quantity: string;
   unit: string;
-  awarded_vendor: string | null;
+  awarded_vendor: string | null; // set only when one vendor covers the full qty
+  awards: LineAward[];           // partial and full allocations per vendor
+  quantity_remaining: number;    // 0 once fully awarded
   quotes: RFQLineQuote[];
 };
 
@@ -1080,13 +1089,22 @@ export async function requestRfqRevision(rfqSlug: string, reason: string) {
 
 export async function selectQuoteLines(
   rfqSlug: string,
-  selections: { line: string; vendor: string }[],
+  selections: { line: string; vendor: string; quantity?: number }[],
 ) {
+  // quantity is optional: omit to award all remaining, or supply a number to
+  // award only that portion (e.g. 7 of 10 units).  Subsequent calls can award
+  // the remaining quantity to a different vendor — each gets their own PO.
   const { data } = await api.post(`/api/orgs/rfqs/${rfqSlug}/select-lines/`, {
     selections,
   });
   return data;
 }
+
+// Example — split-vendor award:
+//   await selectQuoteLines(rfqSlug, [{ line: lineSlug, vendor: "acme", quantity: 7 }]);
+//   await selectQuoteLines(rfqSlug, [{ line: lineSlug, vendor: "office-mart" }]); // remaining 3
+//   await createPurchaseOrderFromRfq(rfqSlug, { vendor: "acme", create_purchase_order: true });
+//   await createPurchaseOrderFromRfq(rfqSlug, { vendor: "office-mart", create_purchase_order: true });
 
 export async function createPurchaseOrderFromRfq(
   rfqSlug: string,
