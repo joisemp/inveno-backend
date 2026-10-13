@@ -26,6 +26,7 @@ from apps.purchases.models import (
     PurchaseOrderLine,
     PurchaseRequest,
     PurchaseRequestLine,
+    PurchaseRequestLineAward,
     QualityCheck,
     QuoteRequest,
     QuoteRequestVendor,
@@ -440,9 +441,19 @@ def reject_rfq_vendor(
     qrv.status = QuoteRequestVendor.Status.REJECTED
     qrv.reject_reason = reason.strip()
     qrv.save()
-    PurchaseRequestLine.objects.filter(
-        request=rfq.purchase_request, awarded_vendor=qrv.vendor
-    ).update(awarded_vendor=None)
+
+    # Delete unplaced awards for this vendor and refresh line snapshots
+    lines_to_refresh = []
+    for award in PurchaseRequestLineAward.objects.filter(
+        request_line__request=rfq.purchase_request,
+        vendor=qrv.vendor,
+        po_line__isnull=True,
+    ).select_related("request_line"):
+        lines_to_refresh.append(award.request_line)
+        award.delete()
+    for line in lines_to_refresh:
+        _refresh_awarded_vendor_snapshot(line)
+
     record_process_event(
         org=rfq.org,
         purchase_request=rfq.purchase_request,
@@ -522,11 +533,34 @@ def record_vendor_quote(
     return quote
 
 
+def _refresh_awarded_vendor_snapshot(line: PurchaseRequestLine) -> None:
+    """Recompute the PurchaseRequestLine.awarded_vendor snapshot from Award rows.
+
+    Sets the vendor only when exactly one vendor covers the entire line quantity;
+    otherwise clears it so partial/split awards show as null.
+    """
+    awards = list(line.awards.select_related("vendor"))
+    total_awarded = sum(a.quantity for a in awards)
+    vendor = awards[0].vendor if (len(awards) == 1 and total_awarded >= line.quantity) else None
+    line.awarded_vendor = vendor
+    line.save(update_fields=["awarded_vendor"])
+
+
+OVER_AWARD = "Award quantity exceeds the remaining unawarded quantity ({remaining})."
+AWARD_ON_PO = "This vendor's award for this line is already on a purchase order."
+QTY_POSITIVE = "Award quantity must be greater than zero."
+
+
 @transaction.atomic
 def select_lines(
     *, rfq: QuoteRequest, actor: UserProfile, selections: list[dict]
 ) -> QuoteRequest:
-    """Ops picks one quoted vendor per request line."""
+    """Ops picks a vendor per request line, optionally awarding a partial quantity.
+
+    If ``quantity`` is omitted the entire remaining unawarded quantity is awarded.
+    A line can be split across two vendors (e.g., 7 to Vendor A then 3 to Vendor B)
+    by calling this endpoint twice with explicit ``quantity`` values.
+    """
     rfq.status = QuoteRequest.Status.AWARDING
     rfq.save(update_fields=["status", "updated_at"])
     for row in selections:
@@ -536,8 +570,13 @@ def select_lines(
             )
         except PurchaseRequestLine.DoesNotExist as exc:
             raise ValidationError({"line": "Unknown request line."}) from exc
-        if req_line.awarded_vendor_id:
+
+        # Compute remaining capacity for this line
+        existing_total = sum(a.quantity for a in req_line.awards.all())
+        remaining = req_line.quantity - existing_total
+        if remaining <= 0:
             raise ValidationError({"line": LINE_ALREADY_AWARDED})
+
         vendor_slug = row["vendor"]
         try:
             qrv = QuoteRequestVendor.objects.select_related("vendor").get(
@@ -550,10 +589,46 @@ def select_lines(
         ).exists()
         if not has_quote:
             raise ValidationError({"vendor": NO_QUOTE_FOR_LINE})
-        req_line.awarded_vendor = qrv.vendor
-        req_line.save(update_fields=["awarded_vendor"])
+
+        # Determine quantity to award
+        award_qty = row.get("quantity")
+        if award_qty is None:
+            award_qty = remaining
+        else:
+            award_qty = Decimal(str(award_qty))
+            if award_qty <= 0:
+                raise ValidationError({"quantity": QTY_POSITIVE})
+            if award_qty > remaining:
+                raise ValidationError(
+                    {"quantity": OVER_AWARD.format(remaining=remaining)}
+                )
+
+        # Upsert the award row for (line, vendor) — increase qty if already exists
+        award, created = PurchaseRequestLineAward.objects.get_or_create(
+            request_line=req_line,
+            vendor=qrv.vendor,
+            defaults={"quantity": award_qty},
+        )
+        if not created:
+            if award.po_line_id is not None:
+                raise ValidationError({"line": AWARD_ON_PO})
+            award.quantity = award.quantity + award_qty
+            award.save(update_fields=["quantity"])
+
+        _refresh_awarded_vendor_snapshot(req_line)
+
         qrv.status = QuoteRequestVendor.Status.AWARDED
         qrv.save(update_fields=["status"])
+
+    # Serialize selections to a JSON-safe structure (Decimal isn't serializable)
+    payload_selections = [
+        {
+            k: str(v) if isinstance(v, Decimal) else v
+            for k, v in row.items()
+            if v is not None
+        }
+        for row in selections
+    ]
     record_process_event(
         org=rfq.org,
         purchase_request=rfq.purchase_request,
@@ -561,7 +636,7 @@ def select_lines(
         resource_slug=rfq.slug,
         action="select_lines",
         actor=actor,
-        payload={"selections": selections},
+        payload={"selections": payload_selections},
     )
     return rfq
 
@@ -574,18 +649,28 @@ def create_purchase_order(
     vendor_slug: str,
     create_purchase_order: bool = True,
 ) -> PurchaseOrder:
-    """Record a PO for one vendor's awarded lines."""
+    """Record a PO for one vendor's unplaced award rows.
+
+    Each PurchaseRequestLineAward with po_line=None contributes one PO line
+    at the award quantity (which may be less than the full request line qty
+    for split-vendor orders).
+    """
     try:
         vendor = Vendor.objects.get(org=rfq.org, slug=vendor_slug)
     except Vendor.DoesNotExist as exc:
         raise ValidationError({"vendor": VENDOR_NOT_ON_RFQ}) from exc
-    awarded = list(
-        PurchaseRequestLine.objects.filter(
-            request=rfq.purchase_request, awarded_vendor=vendor
-        )
+
+    # Unplaced awards for this vendor on this PR
+    awards = list(
+        PurchaseRequestLineAward.objects.filter(
+            request_line__request=rfq.purchase_request,
+            vendor=vendor,
+            po_line__isnull=True,
+        ).select_related("request_line")
     )
-    if not awarded:
+    if not awards:
         raise ValidationError({"vendor": NO_AWARDED_LINES})
+
     po = PurchaseOrder.objects.create(
         org=rfq.org,
         purchase_request=rfq.purchase_request,
@@ -593,20 +678,24 @@ def create_purchase_order(
         is_new_order=create_purchase_order,
         status=PurchaseOrder.Status.ISSUED,
     )
-    for line in awarded:
+    for award in awards:
+        req_line = award.request_line
         quote_line = VendorQuoteLine.objects.filter(
-            request_line=line,
+            request_line=req_line,
             quote__quote_request_vendor__vendor=vendor,
         ).first()
         unit_price = quote_line.unit_price if quote_line else Decimal("0")
-        PurchaseOrderLine.objects.create(
+        po_line = PurchaseOrderLine.objects.create(
             purchase_order=po,
-            request_line=line,
-            description=line.description,
-            quantity=line.quantity,
-            unit=line.unit,
+            request_line=req_line,
+            description=req_line.description,
+            quantity=award.quantity,
+            unit=req_line.unit,
             unit_price=unit_price,
         )
+        award.po_line = po_line
+        award.save(update_fields=["po_line"])
+
     record_process_event(
         org=rfq.org,
         purchase_request=rfq.purchase_request,
@@ -620,9 +709,15 @@ def create_purchase_order(
 
 
 def _unaward_po_lines(po: PurchaseOrder) -> None:
-    PurchaseRequestLine.objects.filter(po_lines__purchase_order=po).update(
-        awarded_vendor=None
-    )
+    """Delete the award rows linked to this PO and refresh awarded_vendor snapshots."""
+    lines_to_refresh = []
+    for award in PurchaseRequestLineAward.objects.filter(
+        po_line__purchase_order=po
+    ).select_related("request_line"):
+        lines_to_refresh.append(award.request_line)
+        award.delete()
+    for line in lines_to_refresh:
+        _refresh_awarded_vendor_snapshot(line)
 
 
 @transaction.atomic
