@@ -19,6 +19,7 @@ from apps.purchases.views import (
     PurchaseRequestTrailView,
     RFQAddVendorView,
     RFQCancelView,
+    RFQClearAwardView,
     RFQCreatePOView,
     RFQDetailView,
     RFQExportView,
@@ -27,6 +28,7 @@ from apps.purchases.views import (
     RFQRejectVendorView,
     RFQRevisionView,
     RFQSelectLinesView,
+    RFQSetAwardView,
     WarehouseReceiptCompleteView,
     WarehouseReceiptDetailView,
     WarehouseReceiptExportView,
@@ -99,6 +101,16 @@ urlpatterns = [
         "rfqs/<slug:slug>/select-lines/",
         RFQSelectLinesView.as_view(),
         name="rfq-select",
+    ),
+    path(
+        "rfqs/<slug:slug>/set-award/",
+        RFQSetAwardView.as_view(),
+        name="rfq-set-award",
+    ),
+    path(
+        "rfqs/<slug:slug>/clear-award/",
+        RFQClearAwardView.as_view(),
+        name="rfq-clear-award",
     ),
     path(
         "rfqs/<slug:slug>/purchase-orders/",

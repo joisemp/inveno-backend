@@ -285,6 +285,25 @@ class SelectLinesSerializer(serializers.Serializer):
     selections = SelectionSerializer(many=True)
 
 
+class SetAwardSerializer(serializers.Serializer):
+    """Replace quantity on an existing unplaced award."""
+
+    line = serializers.SlugField()
+    vendor = serializers.SlugField()
+    quantity = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=3,
+        min_value=Decimal("0.001"),
+    )
+
+
+class ClearAwardSerializer(serializers.Serializer):
+    """Remove an unplaced award for a line + vendor."""
+
+    line = serializers.SlugField()
+    vendor = serializers.SlugField()
+
+
 class CreatePOSerializer(serializers.Serializer):
     vendor = serializers.SlugField()
     create_purchase_order = serializers.BooleanField(default=True)

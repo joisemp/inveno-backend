@@ -1111,9 +1111,34 @@ export async function selectQuoteLines(
   return data;
 }
 
+/** Replace quantity on an existing unplaced award (before PO). Does not add. */
+export async function setAward(
+  rfqSlug: string,
+  body: { line: string; vendor: string; quantity: number | string },
+) {
+  const { data } = await api.post<QuoteRequest>(
+    `/api/orgs/rfqs/${rfqSlug}/set-award/`,
+    body,
+  );
+  return data;
+}
+
+/** Remove an unplaced award so the quantity can be re-awarded. */
+export async function clearAward(
+  rfqSlug: string,
+  body: { line: string; vendor: string },
+) {
+  const { data } = await api.post<QuoteRequest>(
+    `/api/orgs/rfqs/${rfqSlug}/clear-award/`,
+    body,
+  );
+  return data;
+}
+
 // Example — split-vendor award:
 //   await selectQuoteLines(rfqSlug, [{ line: lineSlug, vendor: "acme", quantity: 7 }]);
-//   await selectQuoteLines(rfqSlug, [{ line: lineSlug, vendor: "office-mart" }]); // remaining 3
+//   await setAward(rfqSlug, { line: lineSlug, vendor: "acme", quantity: 5 }); // edit 7 → 5
+//   await selectQuoteLines(rfqSlug, [{ line: lineSlug, vendor: "office-mart" }]); // remaining
 //   await createPurchaseOrderFromRfq(rfqSlug, { vendor: "acme", create_purchase_order: true });
 //   await createPurchaseOrderFromRfq(rfqSlug, { vendor: "office-mart", create_purchase_order: true });
 

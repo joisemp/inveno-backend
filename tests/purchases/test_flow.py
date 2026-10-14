@@ -1286,3 +1286,117 @@ class TestActiveRfqField:
         detail = ops_client.get(f"{PR}{created['slug']}/")
         assert detail.json()["active_rfq"] == second["slug"]
         assert detail.json()["active_rfq"] != first["slug"]
+
+
+@pytest.mark.django_db
+class TestEditUnplacedAward:
+    """set-award / clear-award before PO; blocked after PO."""
+
+    def test_set_award_replaces_quantity(self, ops_client, vendor_a, vendor_b):
+        _created, rfq, line_slug = _single_line_quoted_rfq(ops_client, vendor_a, vendor_b)
+        rfq_slug = rfq["slug"]
+        ops_client.post(
+            f"{RFQ}{rfq_slug}/select-lines/",
+            {"selections": [{"line": line_slug, "vendor": vendor_a.slug, "quantity": "7"}]},
+            format="json",
+        )
+        updated = ops_client.post(
+            f"{RFQ}{rfq_slug}/set-award/",
+            {"line": line_slug, "vendor": vendor_a.slug, "quantity": "5"},
+            format="json",
+        )
+        assert updated.status_code == 200
+        line = next(r for r in updated.json()["lines"] if r["slug"] == line_slug)
+        assert line["quantity_remaining"] == 5
+        assert line["awards"][0]["quantity"] == 5
+
+    def test_clear_award_restores_remaining(self, ops_client, vendor_a, vendor_b):
+        _created, rfq, line_slug = _single_line_quoted_rfq(ops_client, vendor_a, vendor_b)
+        rfq_slug = rfq["slug"]
+        ops_client.post(
+            f"{RFQ}{rfq_slug}/select-lines/",
+            {"selections": [{"line": line_slug, "vendor": vendor_a.slug, "quantity": "7"}]},
+            format="json",
+        )
+        cleared = ops_client.post(
+            f"{RFQ}{rfq_slug}/clear-award/",
+            {"line": line_slug, "vendor": vendor_a.slug},
+            format="json",
+        )
+        assert cleared.status_code == 200
+        line = next(r for r in cleared.json()["lines"] if r["slug"] == line_slug)
+        assert line["awards"] == []
+        assert line["quantity_remaining"] == 10
+
+    def test_set_after_po_rejected(self, ops_client, vendor_a, vendor_b):
+        _created, rfq, line_slug = _single_line_quoted_rfq(ops_client, vendor_a, vendor_b)
+        rfq_slug = rfq["slug"]
+        ops_client.post(
+            f"{RFQ}{rfq_slug}/select-lines/",
+            {"selections": [{"line": line_slug, "vendor": vendor_a.slug, "quantity": "7"}]},
+            format="json",
+        )
+        po = ops_client.post(
+            f"{RFQ}{rfq_slug}/purchase-orders/",
+            {"vendor": vendor_a.slug, "create_purchase_order": True},
+            format="json",
+        )
+        assert po.status_code == 201
+        bad = ops_client.post(
+            f"{RFQ}{rfq_slug}/set-award/",
+            {"line": line_slug, "vendor": vendor_a.slug, "quantity": "5"},
+            format="json",
+        )
+        assert bad.status_code == 400
+
+    def test_clear_after_po_rejected(self, ops_client, vendor_a, vendor_b):
+        _created, rfq, line_slug = _single_line_quoted_rfq(ops_client, vendor_a, vendor_b)
+        rfq_slug = rfq["slug"]
+        ops_client.post(
+            f"{RFQ}{rfq_slug}/select-lines/",
+            {"selections": [{"line": line_slug, "vendor": vendor_a.slug}]},
+            format="json",
+        )
+        ops_client.post(
+            f"{RFQ}{rfq_slug}/purchase-orders/",
+            {"vendor": vendor_a.slug, "create_purchase_order": True},
+            format="json",
+        )
+        bad = ops_client.post(
+            f"{RFQ}{rfq_slug}/clear-award/",
+            {"line": line_slug, "vendor": vendor_a.slug},
+            format="json",
+        )
+        assert bad.status_code == 400
+
+    def test_set_above_capacity_rejected(self, ops_client, vendor_a, vendor_b):
+        _created, rfq, line_slug = _single_line_quoted_rfq(ops_client, vendor_a, vendor_b)
+        rfq_slug = rfq["slug"]
+        ops_client.post(
+            f"{RFQ}{rfq_slug}/select-lines/",
+            {
+                "selections": [
+                    {"line": line_slug, "vendor": vendor_a.slug, "quantity": "7"},
+                    {"line": line_slug, "vendor": vendor_b.slug, "quantity": "3"},
+                ]
+            },
+            format="json",
+        )
+        # Vendor A can at most take 7 (10 - 3 held by B)
+        bad = ops_client.post(
+            f"{RFQ}{rfq_slug}/set-award/",
+            {"line": line_slug, "vendor": vendor_a.slug, "quantity": "8"},
+            format="json",
+        )
+        assert bad.status_code == 400
+        assert "quantity" in bad.json()
+
+    def test_set_unknown_award_rejected(self, ops_client, vendor_a, vendor_b):
+        _created, rfq, line_slug = _single_line_quoted_rfq(ops_client, vendor_a, vendor_b)
+        bad = ops_client.post(
+            f"{RFQ}{rfq['slug']}/set-award/",
+            {"line": line_slug, "vendor": vendor_a.slug, "quantity": "5"},
+            format="json",
+        )
+        assert bad.status_code == 400
+        assert "line" in bad.json()

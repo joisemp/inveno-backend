@@ -2095,6 +2095,8 @@ Further RFQ actions (all ops/central admin):
 | POST | `/api/orgs/rfqs/{slug}/request-revision/` | empty — RFQ back to `preparing` |
 | POST | `/api/orgs/rfqs/{slug}/cancel/` | empty — status `cancelled` (only before awards/POs) |
 | POST | `/api/orgs/rfqs/{slug}/select-lines/` | `{ "selections": [{ "line": "<slug>", "vendor": "<slug>", "quantity": 7 }] }` |
+| POST | `/api/orgs/rfqs/{slug}/set-award/` | `{ "line": "<slug>", "vendor": "<slug>", "quantity": 5 }` — replace unplaced qty |
+| POST | `/api/orgs/rfqs/{slug}/clear-award/` | `{ "line": "<slug>", "vendor": "<slug>" }` — remove unplaced award |
 | POST | `/api/orgs/rfqs/{slug}/purchase-orders/` | `{ "vendor": "<slug>", "create_purchase_order": true }` |
 | GET | `/api/orgs/rfqs/{slug}/export/?format=pdf\|xlsx` | quote comparison |
 
@@ -2115,6 +2117,48 @@ non-cancelled purchase orders.
 ```json
 { "detail": "Cannot cancel a quote request after awards or purchase orders exist." }
 ```
+
+#### Edit unplaced awards (`set-award` / `clear-award`)
+
+Before a PO is created for an award, ops can **replace** or **remove** that award
+without rejecting the vendor. `select-lines` still **adds** remaining qty; use
+these endpoints to edit.
+
+**Set (replace) quantity** `POST /api/orgs/rfqs/{slug}/set-award/`:
+
+```json
+{ "line": "a4-paper-abc", "vendor": "acme-supplies", "quantity": 5 }
+```
+
+**Success `200`:** RFQ with updated `lines[].awards` and `quantity_remaining`.
+
+**Error `400` — award already on a PO:**
+```json
+{ "line": ["This vendor's award for this line is already on a purchase order."] }
+```
+
+**Error `400` — quantity above capacity (other vendors keep their share):**
+```json
+{
+  "quantity": [
+    "Award quantity exceeds capacity for this vendor (line quantity minus other vendors' awards: 3.000)."
+  ]
+}
+```
+
+**Error `400` — no award to edit:**
+```json
+{ "line": ["No award exists for that line and vendor."] }
+```
+
+**Clear award** `POST /api/orgs/rfqs/{slug}/clear-award/`:
+
+```json
+{ "line": "a4-paper-abc", "vendor": "acme-supplies" }
+```
+
+**Success `200`:** that award removed; quantity returns to `quantity_remaining`.
+Same PO-block and unknown-award errors as set-award.
 
 #### Partial quantity awards (`select-lines`)
 
