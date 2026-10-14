@@ -42,6 +42,7 @@ _PR_PREFETCH = (
     ),
 )
 from apps.purchases.serializers import (
+    ClearAwardSerializer,
     CreatePOSerializer,
     InvoiceWriteSerializer,
     ProcessEventSerializer,
@@ -58,6 +59,7 @@ from apps.purchases.serializers import (
     ReceiptCompleteSerializer,
     RejectVendorSerializer,
     SelectLinesSerializer,
+    SetAwardSerializer,
     VendorSlugSerializer,
     VerifyEventResultSerializer,
     VerifyEventSerializer,
@@ -67,6 +69,7 @@ from apps.purchases.services import (
     add_rfq_vendor,
     approve_purchase_request,
     cancel_rfq,
+    clear_award,
     complete_warehouse_receipt,
     create_purchase_order,
     decline_purchase_request,
@@ -83,6 +86,7 @@ from apps.purchases.services import (
     request_pr_revision,
     request_rfq_revision,
     select_lines,
+    set_award,
     submit_purchase_request,
     verify_process_event,
 )
@@ -470,6 +474,117 @@ class RFQSelectLinesView(_RFQActionView):
         except DjangoValidationError as exc:
             return _err(exc)
         rfq = QuoteRequest.objects.prefetch_related("vendors__vendor", "purchase_request__lines", "purchase_request__lines__awards__vendor").get(pk=rfq.pk)
+        return Response(QuoteRequestSerializer(rfq).data)
+
+
+_RFQ_LINES_PREFETCH = (
+    "vendors__vendor",
+    "purchase_request__lines",
+    "purchase_request__lines__awards__vendor",
+)
+
+
+@extend_schema(
+    tags=["Purchases"],
+    parameters=[_SLUG],
+    request=SetAwardSerializer,
+    responses={
+        200: QuoteRequestSerializer,
+        400: OpenApiResponse(
+            DetailSerializer,
+            examples=[
+                OpenApiExample(
+                    "Already on PO",
+                    value={
+                        "line": [
+                            "This vendor's award for this line is already on a purchase order."
+                        ]
+                    },
+                ),
+                OpenApiExample(
+                    "Over capacity",
+                    value={
+                        "quantity": [
+                            "Award quantity exceeds capacity for this vendor "
+                            "(line quantity minus other vendors' awards: 3.000)."
+                        ]
+                    },
+                ),
+            ],
+        ),
+        404: _NOT_FOUND,
+        **error_responses(401, 403),
+    },
+)
+class RFQSetAwardView(_RFQActionView):
+    """Replace quantity on an existing unplaced award (before PO)."""
+
+    serializer_class = SetAwardSerializer
+
+    def post(self, request, *args, **kwargs):
+        rfq = self.get_object()
+        ser = SetAwardSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        try:
+            set_award(
+                rfq=rfq,
+                actor=request.user.profile,
+                line_slug=ser.validated_data["line"],
+                vendor_slug=ser.validated_data["vendor"],
+                quantity=ser.validated_data["quantity"],
+            )
+        except DjangoValidationError as exc:
+            return _err(exc)
+        rfq = QuoteRequest.objects.prefetch_related(*_RFQ_LINES_PREFETCH).get(pk=rfq.pk)
+        return Response(QuoteRequestSerializer(rfq).data)
+
+
+@extend_schema(
+    tags=["Purchases"],
+    parameters=[_SLUG],
+    request=ClearAwardSerializer,
+    responses={
+        200: QuoteRequestSerializer,
+        400: OpenApiResponse(
+            DetailSerializer,
+            examples=[
+                OpenApiExample(
+                    "Already on PO",
+                    value={
+                        "line": [
+                            "This vendor's award for this line is already on a purchase order."
+                        ]
+                    },
+                ),
+                OpenApiExample(
+                    "Unknown award",
+                    value={"line": ["No award exists for that line and vendor."]},
+                ),
+            ],
+        ),
+        404: _NOT_FOUND,
+        **error_responses(401, 403),
+    },
+)
+class RFQClearAwardView(_RFQActionView):
+    """Remove an unplaced award so quantity can be re-awarded."""
+
+    serializer_class = ClearAwardSerializer
+
+    def post(self, request, *args, **kwargs):
+        rfq = self.get_object()
+        ser = ClearAwardSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        try:
+            clear_award(
+                rfq=rfq,
+                actor=request.user.profile,
+                line_slug=ser.validated_data["line"],
+                vendor_slug=ser.validated_data["vendor"],
+            )
+        except DjangoValidationError as exc:
+            return _err(exc)
+        rfq = QuoteRequest.objects.prefetch_related(*_RFQ_LINES_PREFETCH).get(pk=rfq.pk)
         return Response(QuoteRequestSerializer(rfq).data)
 
 

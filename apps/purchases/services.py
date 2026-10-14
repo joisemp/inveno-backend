@@ -598,6 +598,11 @@ def _refresh_awarded_vendor_snapshot(line: PurchaseRequestLine) -> None:
 OVER_AWARD = "Award quantity exceeds the remaining unawarded quantity ({remaining})."
 AWARD_ON_PO = "This vendor's award for this line is already on a purchase order."
 QTY_POSITIVE = "Award quantity must be greater than zero."
+UNKNOWN_AWARD = "No award exists for that line and vendor."
+SET_OVER_CAPACITY = (
+    "Award quantity exceeds capacity for this vendor "
+    "(line quantity minus other vendors' awards: {capacity})."
+)
 
 
 @transaction.atomic
@@ -686,6 +691,105 @@ def select_lines(
         action="select_lines",
         actor=actor,
         payload={"selections": payload_selections},
+    )
+    return rfq
+
+
+def _get_line_and_award(
+    *, rfq: QuoteRequest, line_slug: str, vendor_slug: str
+) -> tuple[PurchaseRequestLine, PurchaseRequestLineAward]:
+    """Resolve PR line + existing award for set/clear; vendor must be on the RFQ."""
+    try:
+        req_line = PurchaseRequestLine.objects.get(
+            request=rfq.purchase_request, slug=line_slug
+        )
+    except PurchaseRequestLine.DoesNotExist as exc:
+        raise ValidationError({"line": "Unknown request line."}) from exc
+    try:
+        qrv = QuoteRequestVendor.objects.select_related("vendor").get(
+            quote_request=rfq, vendor__slug=vendor_slug
+        )
+    except QuoteRequestVendor.DoesNotExist as exc:
+        raise ValidationError({"vendor": VENDOR_NOT_ON_RFQ}) from exc
+    try:
+        award = PurchaseRequestLineAward.objects.get(
+            request_line=req_line, vendor=qrv.vendor
+        )
+    except PurchaseRequestLineAward.DoesNotExist as exc:
+        raise ValidationError({"line": UNKNOWN_AWARD}) from exc
+    return req_line, award
+
+
+@transaction.atomic
+def set_award(
+    *,
+    rfq: QuoteRequest,
+    actor: UserProfile,
+    line_slug: str,
+    vendor_slug: str,
+    quantity,
+) -> QuoteRequest:
+    """Replace quantity on an existing unplaced award (before PO)."""
+    req_line, award = _get_line_and_award(
+        rfq=rfq, line_slug=line_slug, vendor_slug=vendor_slug
+    )
+    if award.po_line_id is not None:
+        raise ValidationError({"line": AWARD_ON_PO})
+    qty = Decimal(str(quantity))
+    if qty <= 0:
+        raise ValidationError({"quantity": QTY_POSITIVE})
+    others = sum(
+        a.quantity
+        for a in req_line.awards.exclude(pk=award.pk)
+    )
+    capacity = req_line.quantity - others
+    if qty > capacity:
+        raise ValidationError(
+            {"quantity": SET_OVER_CAPACITY.format(capacity=capacity)}
+        )
+    award.quantity = qty
+    award.save(update_fields=["quantity"])
+    _refresh_awarded_vendor_snapshot(req_line)
+    record_process_event(
+        org=rfq.org,
+        purchase_request=rfq.purchase_request,
+        resource_type="quote_request",
+        resource_slug=rfq.slug,
+        action="set_award",
+        actor=actor,
+        payload={
+            "line": line_slug,
+            "vendor": vendor_slug,
+            "quantity": str(qty),
+        },
+    )
+    return rfq
+
+
+@transaction.atomic
+def clear_award(
+    *,
+    rfq: QuoteRequest,
+    actor: UserProfile,
+    line_slug: str,
+    vendor_slug: str,
+) -> QuoteRequest:
+    """Remove an unplaced award so the quantity can be re-awarded."""
+    req_line, award = _get_line_and_award(
+        rfq=rfq, line_slug=line_slug, vendor_slug=vendor_slug
+    )
+    if award.po_line_id is not None:
+        raise ValidationError({"line": AWARD_ON_PO})
+    award.delete()
+    _refresh_awarded_vendor_snapshot(req_line)
+    record_process_event(
+        org=rfq.org,
+        purchase_request=rfq.purchase_request,
+        resource_type="quote_request",
+        resource_slug=rfq.slug,
+        action="clear_award",
+        actor=actor,
+        payload={"line": line_slug, "vendor": vendor_slug},
     )
     return rfq
 

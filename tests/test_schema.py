@@ -57,6 +57,8 @@ EXPECTED_PATHS = [
     "/api/orgs/rfqs/{slug}/request-revision/",
     "/api/orgs/rfqs/{slug}/cancel/",
     "/api/orgs/rfqs/{slug}/select-lines/",
+    "/api/orgs/rfqs/{slug}/set-award/",
+    "/api/orgs/rfqs/{slug}/clear-award/",
     "/api/orgs/rfqs/{slug}/purchase-orders/",
     "/api/orgs/rfqs/{slug}/export/",
     "/api/orgs/purchase-orders/",
@@ -210,6 +212,14 @@ def test_purchases_schema_documents_success_and_errors():
     select = schema["paths"]["/api/orgs/rfqs/{slug}/select-lines/"]["post"]["responses"]
     for code in ("200", "400", "401", "403", "404"):
         assert code in select, f"select-lines missing response {code}"
+    set_award = schema["paths"]["/api/orgs/rfqs/{slug}/set-award/"]["post"]["responses"]
+    for code in ("200", "400", "401", "403", "404"):
+        assert code in set_award, f"set-award missing response {code}"
+    clear_award = schema["paths"]["/api/orgs/rfqs/{slug}/clear-award/"]["post"][
+        "responses"
+    ]
+    for code in ("200", "400", "401", "403", "404"):
+        assert code in clear_award, f"clear-award missing response {code}"
     complete = schema["paths"]["/api/orgs/warehouse/receipts/{slug}/complete/"]["post"][
         "responses"
     ]
